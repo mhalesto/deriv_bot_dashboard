@@ -576,12 +576,20 @@ function emptyState(text, icon = "inbox") {
 
 /* ---------------- PnL by symbol (range-aware) ---------------- */
 const RANGE_SQL = {
-  today: "and time >= strftime('%s', 'now', 'start of day') + 0",
-  "24h": "and time >= strftime('%s', 'now', '-1 day') + 0",
-  "7d": "and time >= strftime('%s', 'now', '-7 days') + 0",
-  "30d": "and time >= strftime('%s', 'now', '-30 days') + 0",
+  today: "and {time} >= strftime('%s', 'now', 'start of day') + 0",
+  "24h": "and {time} >= strftime('%s', 'now', '-1 day') + 0",
+  "7d": "and {time} >= strftime('%s', 'now', '-7 days') + 0",
+  "30d": "and {time} >= strftime('%s', 'now', '-30 days') + 0",
   all: "",
 };
+
+function settledHistorySource() {
+  const authoritative = state.status?.metrics?.history_source === "deriv"
+    || Number(state.status?.runtime?.account_history_count || 0) > 0;
+  return authoritative
+    ? { table: "account_contracts", time: "sell_time" }
+    : { table: "trades", time: "time" };
+}
 
 async function refreshPnlRange() {
   try {
@@ -590,9 +598,11 @@ async function refreshPnlRange() {
         symbol: r.symbol, pnl: Number(r.pnl || 0), trades: Number(r.trades || 0), win_rate: Number(r.win_rate || 0),
       }));
     } else {
+      const source = settledHistorySource();
+      const range = RANGE_SQL[state.pnlRange].replace("{time}", source.time);
       const sql = `select symbol, round(coalesce(sum(pnl), 0), 2) as pnl, count(*) as trades, `
         + `round(avg(case when outcome = 1 then 1.0 when outcome = 0 then 0.0 end) * 100, 2) as win_rate `
-        + `from trades where 1 = 1 ${RANGE_SQL[state.pnlRange]} group by symbol order by pnl desc`;
+        + `from ${source.table} where 1 = 1 ${range} group by symbol order by pnl desc`;
       state.pnlRows = await apiQuery(sql, 50);
     }
   } catch (err) {
@@ -651,7 +661,11 @@ function renderPnlBars() {
 /* ---------------- equity curve ---------------- */
 async function refreshEquity() {
   try {
-    const rows = await apiQuery("select time, pnl from trades order by time desc limit 1000", 1000);
+    const source = settledHistorySource();
+    const rows = await apiQuery(
+      `select ${source.time} as time, pnl from ${source.table} order by ${source.time} desc limit 1000`,
+      1000,
+    );
     state.equity = rows.slice().reverse().map((r) => ({ time: Number(r.time), pnl: Number(r.pnl || 0) }));
   } catch {
     state.equity = [];
@@ -1082,11 +1096,14 @@ async function openSymbolDetail(symbol) {
   openDrawer("symbolDrawer");
 
   try {
+    const source = settledHistorySource();
+    const expectedValue = source.table === "trades" ? "round(avg(expected_value), 4)" : "null";
     const perf = await apiQuery(
       `select count(*) as trades, round(coalesce(sum(pnl), 0), 2) as pnl, `
       + `round(avg(case when outcome = 1 then 1.0 when outcome = 0 then 0.0 end) * 100, 2) as win_rate, `
-      + `round(avg(expected_value), 4) as avg_ev `
-      + `from trades where symbol = ${sqlString(cfg.api_name || symbol)} and time >= strftime('%s', 'now', '-1 day') + 0`, 1);
+      + `${expectedValue} as avg_ev `
+      + `from ${source.table} where symbol = ${sqlString(cfg.api_name || symbol)} `
+      + `and ${source.time} >= strftime('%s', 'now', '-1 day') + 0`, 1);
     const row = perf[0] || {};
     const pnl = Number(row.pnl || 0);
     $("symbolPerf").innerHTML = `
@@ -1096,8 +1113,8 @@ async function openSymbolDetail(symbol) {
       <div class="kv"><span class="kv__label">Avg pred EV</span><span class="kv__value kv__value--accent">${row.avg_ev != null ? fmtNum(row.avg_ev, 4) : "--"}</span></div>`;
 
     const recent = await apiQuery(
-      `select datetime(time, 'unixepoch') as t, contract_type, pnl from trades `
-      + `where symbol = ${sqlString(cfg.api_name || symbol)} order by time desc limit 6`, 6);
+      `select datetime(${source.time}, 'unixepoch') as t, contract_type, pnl from ${source.table} `
+      + `where symbol = ${sqlString(cfg.api_name || symbol)} order by ${source.time} desc limit 6`, 6);
     $("symbolRecent").innerHTML = recent.length
       ? recent.map((r) => `
         <div class="lineitem">
