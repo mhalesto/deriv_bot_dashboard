@@ -80,13 +80,19 @@ function renderMetrics(metrics, runtime, process) {
   const overall = metrics?.overall || {};
   const pnl = Number(overall.pnl || 0);
   const sessionPnl = Number(runtime?.session_pnl || 0);
+  const dailyLoss = Number(runtime?.current_daily_loss || 0);
+  const dailyLimit = Number(runtime?.daily_loss_limit || 0);
+  const dailyTrades = Number(runtime?.confirmed_trades_today || 0);
+  const tradeCap = Number(runtime?.max_trades_per_day || 0);
   $("metricTiles").innerHTML = [
     metricTile("Process", process?.running ? "Running" : "Stopped", process?.running ? "positive" : ""),
     metricTile("Balance", fmtMoney(runtime?.balance || 0)),
     metricTile("Session PnL", fmtMoney(sessionPnl), sessionPnl >= 0 ? "positive" : "negative"),
+    metricTile("Daily Risk", `${fmtMoney(dailyLoss)} / ${fmtMoney(dailyLimit)}`, dailyLoss > 0 ? "negative" : ""),
+    metricTile("Daily Trades", `${dailyTrades} / ${tradeCap || "unlimited"}`),
+    metricTile("Exposure", `${runtime?.open_trades_total || 0} open / ${runtime?.pending_orders_total || 0} pending`),
     metricTile("Total PnL", fmtMoney(pnl), pnl >= 0 ? "positive" : "negative"),
     metricTile("Win Rate", fmtPct(overall.win_rate || 0)),
-    metricTile("Trades", overall.trades || 0),
   ].join("");
 }
 
@@ -210,7 +216,10 @@ function renderSymbols(symbols, runtimeSymbols = {}) {
 
   const rows = Object.values(symbols || {}).map((sym) => {
     const rt = runtimeSymbols[sym.symbol] || {};
-    const status = rt.model_loaded ? "Model" : "No model";
+    const trainingReport = rt.last_training_report || {};
+    const status = rt.model_training
+      ? "Training"
+      : (rt.model_loaded ? "Model accepted" : (trainingReport.accepted === false ? "Model rejected" : "Rules only"));
     const threshold = rt.threshold === undefined || rt.threshold === null ? "" : fmtNum(rt.threshold, 3);
     const symbolName = escapeHtml(sym.symbol);
     const displayName = escapeHtml(sym.display_name || "");
