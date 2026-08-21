@@ -3,147 +3,631 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Deriv Bot Control</title>
+    <meta name="color-scheme" content="dark">
+    <title>Deriv Bot Terminal</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%23161A1E%27/%3E%3Cpath d=%27M6 21l6-7 5 4 9-11%27 fill=%27none%27 stroke=%27%2344e092%27 stroke-width=%273%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27/%3E%3C/svg%3E">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=JetBrains+Mono:wght@400..700&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <header class="topbar">
-      <div>
-        <h1>Deriv Bot Control</h1>
-        <div class="subline" id="lastUpdated">Not connected</div>
+    <!-- ===================== SIDEBAR ===================== -->
+    <aside class="sidebar">
+      <div class="sidebar__brand">
+        <span class="ms">token</span>
+        <span class="sidebar__wordmark">Deriv Bot</span>
       </div>
-      <div class="status-strip">
-        <span class="pill neutral" id="apiPill">API</span>
-        <span class="pill neutral" id="botPill">Bot</span>
-        <span class="pill neutral" id="wsPill">WebSocket</span>
-        <span class="pill neutral" id="authPill">Deriv auth</span>
+      <nav class="sidebar__nav" aria-label="Views">
+        <a class="navlink is-active" data-view="overview" href="#overview" aria-current="page">
+          <span class="ms">grid_view</span><span class="navlink__text">Overview</span>
+        </a>
+        <a class="navlink" data-view="symbols" href="#symbols">
+          <span class="ms">monitoring</span><span class="navlink__text">Symbols</span>
+        </a>
+        <a class="navlink" data-view="trades" href="#trades">
+          <span class="ms">swap_horiz</span><span class="navlink__text">Trades</span>
+        </a>
+        <a class="navlink" data-view="predictions" href="#predictions">
+          <span class="ms">psychology</span><span class="navlink__text">Predictions</span>
+        </a>
+        <a class="navlink" data-view="query" href="#query">
+          <span class="ms">terminal</span><span class="navlink__text">Query</span>
+        </a>
+        <a class="navlink" data-view="logs" href="#logs">
+          <span class="ms">list_alt</span><span class="navlink__text">Logs</span>
+        </a>
+        <div class="sidebar__divider">
+          <a class="navlink" data-view="settings" href="#settings">
+            <span class="ms">settings</span><span class="navlink__text">Settings</span>
+          </a>
+        </div>
+      </nav>
+      <div class="sidebar__foot">
+        <button class="palette-hint" id="paletteHint" type="button">
+          <span class="ms">search</span>
+          <span>Command</span>
+          <kbd>&#8984;K</kbd>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ===================== HEADER ===================== -->
+    <header class="topbar">
+      <div class="topbar__left">
+        <div class="stamp">
+          <span class="stamp__label">Last Updated</span>
+          <span class="stamp__value mono" id="lastUpdated">--:--:--</span>
+        </div>
+        <div class="topbar__rule"></div>
+        <div class="statuses">
+          <span class="status" id="apiPill" title="Controller API"><i class="dot"></i>API</span>
+          <span class="status" id="botPill" title="Bot process"><i class="dot"></i>BOT</span>
+          <span class="status" id="wsPill" title="Deriv WebSocket"><i class="dot"></i>WS</span>
+          <span class="status" id="authPill" title="Deriv authorization"><i class="dot"></i>AUTH</span>
+        </div>
+        <div class="topbar__rule"></div>
+        <div class="refresh-state" id="refreshState" title="Auto-refresh">
+          <span class="ms">autorenew</span>
+          <span class="mono" id="refreshLabel">off</span>
+        </div>
+      </div>
+      <div class="topbar__right">
+        <button class="btn btn--ghost" id="refreshNowBtn" type="button" title="Refresh now">
+          <span class="ms">refresh</span>
+        </button>
+        <button class="btn btn--primary" id="controlsBtn" type="button">
+          <span class="ms" id="controlsBtnIcon">play_arrow</span>Bot Controls
+        </button>
+        <div class="avatar"><span class="ms">person</span></div>
       </div>
     </header>
 
-    <section class="control-band">
-      <label>
-        <span>API URL</span>
-        <input id="apiUrl" type="url" spellcheck="false" value="http://127.0.0.1:8765">
-      </label>
-      <label>
-        <span>Token</span>
-        <input id="apiToken" type="password" spellcheck="false" autocomplete="off">
-      </label>
-      <button id="connectBtn">Connect</button>
-      <label class="small-field">
-        <span>Warmup</span>
-        <input id="warmupMinutes" type="number" min="0" step="1" value="0">
-      </label>
-      <button id="startBtn" class="success">Start</button>
-      <button id="stopBtn" class="danger">Stop</button>
-    </section>
+    <main class="main">
+      <!-- ===================== OVERVIEW ===================== -->
+      <section class="view is-active" id="view-overview">
+        <div class="view__wash" aria-hidden="true"></div>
 
-    <nav class="tabs" aria-label="Views">
-      <button class="tab active" data-view="overview">Overview</button>
-      <button class="tab" data-view="symbols">Symbols</button>
-      <button class="tab" data-view="trades">Trades</button>
-      <button class="tab" data-view="predictions">Predictions</button>
-      <button class="tab" data-view="query">Query</button>
-      <button class="tab" data-view="logs">Logs</button>
-    </nav>
+        <div class="kpi-grid" id="kpiTiles"></div>
+        <div class="kpi-grid kpi-grid--risk" id="riskTiles"></div>
 
-    <main>
-      <section id="overview" class="view active">
-        <div class="metrics-grid" id="metricTiles"></div>
-        <div class="split">
+        <div class="grid-2-1">
           <section class="panel">
-            <div class="panel-head">
-              <h2>PnL By Symbol</h2>
-              <button id="refreshOverviewBtn">Refresh</button>
+            <div class="panel__head">
+              <h2 class="panel__title">PnL By Symbol</h2>
+              <div class="segmented" id="pnlRange" role="group" aria-label="PnL range">
+                <button class="seg" data-range="today" type="button">Today</button>
+                <button class="seg" data-range="24h" type="button">24H</button>
+                <button class="seg" data-range="7d" type="button">7D</button>
+                <button class="seg" data-range="30d" type="button">30D</button>
+                <button class="seg is-active" data-range="all" type="button">All</button>
+              </div>
             </div>
-            <canvas id="pnlChart" height="260"></canvas>
+            <div class="panel__body" id="pnlBars"></div>
           </section>
-          <section class="panel">
-            <div class="panel-head">
-              <h2>Strategy Edge</h2>
+
+          <section class="panel panel--curve">
+            <div class="panel__head">
+              <h2 class="panel__title">
+                <span class="ms panel__icon">show_chart</span>Equity Curve
+              </h2>
+              <span class="chip chip--muted mono" id="equityDelta">--</span>
             </div>
-            <div id="strategyTable"></div>
+            <div class="panel__body panel__body--flush">
+              <canvas id="equityChart" height="220"></canvas>
+              <div class="curve-legend">
+                <span><i class="swatch swatch--pos"></i>Cumulative PnL</span>
+                <span class="mono" id="equityMeta">no trades</span>
+              </div>
+            </div>
           </section>
         </div>
+
+        <section class="panel panel--glow">
+          <div class="panel__head">
+            <h2 class="panel__title"><span class="ms panel__icon">strategy</span>Strategy Edge</h2>
+            <button class="linkbtn" id="strategyToTradesBtn" type="button">
+              View trades <span class="ms">arrow_forward</span>
+            </button>
+          </div>
+          <div class="panel__body panel__body--flush">
+            <div class="table-wrap" id="strategyTable"></div>
+          </div>
+        </section>
       </section>
 
-      <section id="symbols" class="view">
-        <section class="panel">
-          <div class="panel-head">
-            <h2>Symbol Runtime</h2>
-            <button id="saveSymbolsBtn" class="success">Save</button>
+      <!-- ===================== SYMBOLS ===================== -->
+      <section class="view" id="view-symbols">
+        <div class="pagehead">
+          <div>
+            <h1 class="pagehead__title">Active Symbols Configuration</h1>
+            <p class="pagehead__sub">Configure trading parameters and execution states for individual instruments.</p>
           </div>
-          <div class="table-wrap">
-            <table>
+          <div class="pagehead__tools">
+            <div class="field-search">
+              <span class="ms">search</span>
+              <input id="symbolFilter" type="search" placeholder="Filter symbols..." spellcheck="false">
+            </div>
+            <button class="btn btn--surface" id="symbolShowEnabledBtn" type="button" aria-pressed="false">
+              <span class="ms">filter_list</span>Enabled only
+            </button>
+          </div>
+        </div>
+        <div class="panel panel--table">
+          <div class="table-wrap table-wrap--sticky">
+            <table class="grid-table" id="symbolsTable">
               <thead>
                 <tr>
-                  <th>Run</th>
+                  <th class="col-run">Run</th>
                   <th>Symbol</th>
                   <th>Status</th>
-                  <th>Duration</th>
-                  <th>Granularity</th>
-                  <th>Candles</th>
-                  <th>Stake</th>
-                  <th>Min EV</th>
-                  <th>Trades</th>
-                  <th>Threshold</th>
+                  <th class="num">Duration</th>
+                  <th class="num">Granularity</th>
+                  <th class="num">Candles</th>
+                  <th class="num">Stake ($)</th>
+                  <th class="num">Min EV</th>
+                  <th class="num">Trades</th>
+                  <th class="num">Threshold</th>
+                  <th class="col-more"></th>
                 </tr>
               </thead>
               <tbody id="symbolRows"></tbody>
             </table>
           </div>
-        </section>
+        </div>
+        <div class="savebar" id="symbolsSaveBar" hidden>
+          <div class="savebar__left">
+            <i class="dot dot--warn"></i>
+            <span class="savebar__count" id="symbolsDirtyCount">0 Unsaved Changes</span>
+          </div>
+          <div class="savebar__right">
+            <button class="btn btn--ghost" id="discardSymbolsBtn" type="button">Discard</button>
+            <button class="btn btn--primary" id="saveSymbolsBtn" type="button">Save Changes</button>
+          </div>
+        </div>
       </section>
 
-      <section id="trades" class="view">
-        <section class="panel">
-          <div class="panel-head">
-            <h2>Recent Trades</h2>
-            <div class="inline-controls">
+      <!-- ===================== TRADES ===================== -->
+      <section class="view" id="view-trades">
+        <div class="pagehead">
+          <div>
+            <h1 class="pagehead__title">Trade History</h1>
+            <p class="pagehead__sub">Review execution logs and performance metrics.</p>
+          </div>
+          <div class="pagehead__tools toolbar">
+            <div class="field-search">
+              <span class="ms">search</span>
+              <input id="tradeSearch" type="search" placeholder="Search symbol, ID..." spellcheck="false">
+            </div>
+            <div class="toolbar__rule"></div>
+            <label class="selectbox">
+              <span class="selectbox__label">Symbol</span>
               <select id="tradeSymbol"></select>
-              <button id="loadTradesBtn">Load</button>
-            </div>
+            </label>
+            <label class="selectbox">
+              <span class="selectbox__label">Type</span>
+              <select id="tradeType">
+                <option value="">All</option>
+                <option value="CALL">CALL</option>
+                <option value="PUT">PUT</option>
+              </select>
+            </label>
+            <label class="selectbox">
+              <span class="selectbox__label">Outcome</span>
+              <select id="tradeOutcome">
+                <option value="">All</option>
+                <option value="won">Won</option>
+                <option value="lost">Lost</option>
+                <option value="open">Open</option>
+              </select>
+            </label>
+            <div class="toolbar__rule"></div>
+            <button class="btn btn--surface" id="loadTradesBtn" type="button"><span class="ms">download_for_offline</span>Load</button>
+            <button class="btn btn--surface" id="exportTradesBtn" type="button" title="Export CSV"><span class="ms">download</span></button>
           </div>
-          <div id="tradesTable"></div>
-        </section>
+        </div>
+
+        <div class="kpi-grid kpi-grid--4" id="tradeMetrics"></div>
+
+        <div class="panel panel--table">
+          <div class="rowgrid rowgrid--head" id="tradesHead">
+            <div class="sortable" data-sort="time">Time <span class="ms">arrow_downward</span></div>
+            <div>Symbol / Strategy</div>
+            <div>Type / Buy</div>
+            <div>Confidence / Prob</div>
+            <div class="num">PnL</div>
+            <div class="num">Contract ID</div>
+            <div class="num">Action</div>
+          </div>
+          <div class="rowlist" id="tradesList"></div>
+          <div class="pagination">
+            <span class="pagination__label" id="tradesCount">No trades loaded</span>
+            <div class="pagination__pages" id="tradesPager"></div>
+          </div>
+        </div>
       </section>
 
-      <section id="predictions" class="view">
-        <section class="panel">
-          <div class="panel-head">
-            <h2>Prediction Attempts</h2>
-            <div class="inline-controls">
+      <!-- ===================== PREDICTIONS ===================== -->
+      <section class="view" id="view-predictions">
+        <div class="pagehead pagehead--tight">
+          <div>
+            <h1 class="pagehead__title">Prediction Attempts</h1>
+            <p class="pagehead__sub">Every model evaluation, and why it was allowed through or blocked.</p>
+          </div>
+          <div class="pagehead__tools toolbar">
+            <label class="selectbox">
+              <span class="selectbox__label">Symbol</span>
               <select id="predictionSymbol"></select>
-              <button id="loadPredictionsBtn">Load</button>
+            </label>
+            <label class="selectbox">
+              <span class="selectbox__label">Outcome</span>
+              <select id="predictionOutcome">
+                <option value="">All</option>
+                <option value="triggered">Triggered</option>
+                <option value="blocked">Blocked</option>
+              </select>
+            </label>
+            <button class="btn btn--surface" id="loadPredictionsBtn" type="button"><span class="ms">download_for_offline</span>Load</button>
+            <button class="btn btn--surface" id="exportPredictionsBtn" type="button" title="Export CSV"><span class="ms">download</span></button>
+          </div>
+        </div>
+
+        <div class="kpi-grid kpi-grid--5" id="predictionMetrics"></div>
+
+        <div class="pred-layout">
+          <section class="panel panel--stream">
+            <div class="panel__head">
+              <h2 class="panel__title"><span class="ms panel__icon">online_prediction</span>Prediction Stream</h2>
+              <button class="iconbtn" id="predPauseBtn" type="button" title="Pause stream"><span class="ms">pause</span></button>
             </div>
+            <div class="stream" id="predictionStream"></div>
+          </section>
+
+          <div class="pred-detail">
+            <section class="panel" id="predictionDetail"></section>
+            <section class="panel panel--reasons">
+              <div class="panel__head">
+                <h2 class="panel__title"><span class="ms panel__icon">block</span>Top Block Reasons</h2>
+              </div>
+              <div class="panel__body" id="blockReasons"></div>
+            </section>
           </div>
-          <div id="predictionsTable"></div>
-        </section>
+        </div>
       </section>
 
-      <section id="query" class="view">
-        <section class="panel query-panel">
-          <div class="panel-head">
-            <h2>SQLite Query</h2>
-            <button id="runQueryBtn">Run</button>
+      <!-- ===================== QUERY ===================== -->
+      <section class="view" id="view-query">
+        <div class="pagehead pagehead--tight">
+          <div>
+            <h1 class="pagehead__title"><span class="ms pagehead__icon">terminal</span>SQL Query Interface</h1>
+            <p class="pagehead__sub">Read-only SQLite against the live bot database. SELECT and WITH only, capped by row limit.</p>
           </div>
-          <textarea id="sqlQuery" spellcheck="false">select symbol, count(*) as trades, round(sum(pnl), 2) as pnl, round(avg(case when outcome = 1 then 1.0 else 0.0 end) * 100, 2) as win_rate from trades group by symbol order by pnl desc</textarea>
-          <div id="queryTable"></div>
-        </section>
+          <div class="pagehead__tools toolbar">
+            <button class="btn btn--surface" id="schemaBtn" type="button" aria-pressed="false"><span class="ms">schema</span>Schema</button>
+            <button class="btn btn--surface" id="historyBtn" type="button"><span class="ms">history</span>History</button>
+            <button class="btn btn--surface" id="savedBtn" type="button"><span class="ms">bookmark</span>Saved</button>
+          </div>
+        </div>
+
+        <div class="query-layout">
+          <aside class="panel panel--schema" id="schemaPanel" hidden>
+            <div class="panel__head">
+              <h2 class="panel__title">Schema</h2>
+              <button class="iconbtn" id="schemaCloseBtn" type="button"><span class="ms">close</span></button>
+            </div>
+            <div class="panel__body panel__body--scroll" id="schemaTree"></div>
+          </aside>
+
+          <div class="query-main">
+            <section class="panel panel--editor">
+              <div class="editor__bar">
+                <div class="editor__bar-left">
+                  <span class="traffic"><i></i><i></i><i></i></span>
+                  <span class="editor__rule"></span>
+                  <span class="mono editor__file">bot.db</span>
+                  <span class="chip chip--muted">Read Only</span>
+                </div>
+                <div class="editor__bar-right">
+                  <label class="selectbox selectbox--tight">
+                    <span class="selectbox__label">Rows</span>
+                    <select id="queryMaxRows">
+                      <option>100</option>
+                      <option selected>500</option>
+                      <option>1000</option>
+                    </select>
+                  </label>
+                  <button class="btn btn--run" id="runQueryBtn" type="button">
+                    <span class="ms">play_arrow</span>Run Query<kbd>&#8984;&#9166;</kbd>
+                  </button>
+                </div>
+              </div>
+              <div class="editor">
+                <div class="editor__gutter" id="sqlGutter"></div>
+                <textarea id="sqlQuery" spellcheck="false" autocomplete="off" wrap="off">select symbol,
+       count(*) as trades,
+       round(sum(pnl), 2) as pnl,
+       round(avg(case when outcome = 1 then 1.0 else 0.0 end) * 100, 2) as win_rate
+from trades
+group by symbol
+order by pnl desc</textarea>
+              </div>
+            </section>
+
+            <section class="panel panel--results">
+              <div class="results__bar">
+                <div class="results__status" id="queryStatus">
+                  <span class="chip chip--muted">Idle</span>
+                </div>
+                <div class="results__actions">
+                  <button class="btn btn--surface" id="saveQueryBtn" type="button"><span class="ms">bookmark_add</span>Save</button>
+                  <button class="btn btn--surface" id="copyQueryResultsBtn" type="button"><span class="ms">content_copy</span>Copy</button>
+                  <button class="btn btn--surface" id="exportQueryBtn" type="button"><span class="ms">download</span>CSV</button>
+                </div>
+              </div>
+              <div class="table-wrap table-wrap--sticky" id="queryTable"></div>
+            </section>
+          </div>
+        </div>
       </section>
 
-      <section id="logs" class="view">
-        <section class="panel">
-          <div class="panel-head">
-            <h2>Logs</h2>
-            <button id="loadLogsBtn">Load</button>
+      <!-- ===================== LOGS ===================== -->
+      <section class="view" id="view-logs">
+        <div class="pagehead pagehead--tight">
+          <div class="pagehead__logs">
+            <span class="livechip"><i class="dot dot--good"></i>Live Tail</span>
+            <h1 class="pagehead__title">System Events</h1>
           </div>
-          <pre id="logOutput"></pre>
-        </section>
+          <div class="pagehead__tools toolbar">
+            <div class="field-search">
+              <span class="ms">search</span>
+              <input id="logGrep" type="search" placeholder="Grep messages..." spellcheck="false">
+            </div>
+            <label class="selectbox">
+              <span class="selectbox__label">Level</span>
+              <select id="logLevel">
+                <option value="">All</option>
+                <option value="error">Error</option>
+                <option value="warn">Warn</option>
+                <option value="success">Success</option>
+                <option value="info">Info</option>
+              </select>
+            </label>
+            <label class="selectbox">
+              <span class="selectbox__label">Lines</span>
+              <select id="logLines">
+                <option>200</option>
+                <option selected>350</option>
+                <option>800</option>
+                <option>2000</option>
+              </select>
+            </label>
+            <div class="toolbar__rule"></div>
+            <button class="btn btn--toggle is-on" id="logFollowBtn" type="button" aria-pressed="true">
+              <span class="ms">vertical_align_bottom</span>Follow
+            </button>
+            <button class="btn btn--surface" id="loadLogsBtn" type="button"><span class="ms">refresh</span></button>
+            <button class="btn btn--surface" id="downloadLogsBtn" type="button" title="Download"><span class="ms">download</span></button>
+          </div>
+        </div>
+
+        <div class="panel panel--logs">
+          <div class="loggrid loggrid--head">
+            <div>Timestamp</div><div>Level</div><div>Message</div><div>Context</div><div></div>
+          </div>
+          <div class="logbody" id="logBody"></div>
+          <div class="pagination">
+            <span class="pagination__label" id="logCount">No log lines loaded</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== SETTINGS ===================== -->
+      <section class="view" id="view-settings">
+        <div class="pagehead pagehead--tight">
+          <div>
+            <h1 class="pagehead__title">Settings</h1>
+            <p class="pagehead__sub">Connection, refresh behaviour, and operational safeguards for this browser.</p>
+          </div>
+        </div>
+
+        <div class="settings-grid">
+          <section class="panel">
+            <div class="panel__head"><h2 class="panel__title"><span class="ms panel__icon">lan</span>Controller Connection</h2></div>
+            <div class="panel__body form">
+              <label class="field">
+                <span class="field__label">API URL</span>
+                <input id="setApiUrl" type="url" spellcheck="false" placeholder="http://127.0.0.1:8765">
+              </label>
+              <label class="field">
+                <span class="field__label">Control token</span>
+                <span class="field__reveal">
+                  <input id="setApiToken" type="password" spellcheck="false" autocomplete="off">
+                  <button class="iconbtn" id="revealTokenBtn" type="button" title="Show token"><span class="ms">visibility</span></button>
+                </span>
+              </label>
+              <label class="check">
+                <input id="setRememberToken" type="checkbox">
+                <span>Remember token in this browser's localStorage</span>
+              </label>
+              <div class="form__row">
+                <button class="btn btn--primary" id="setConnectBtn" type="button"><span class="ms">link</span>Connect</button>
+                <button class="btn btn--surface" id="setHealthBtn" type="button"><span class="ms">health_and_safety</span>Test health</button>
+              </div>
+              <div class="callout" id="healthResult" hidden></div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel__head"><h2 class="panel__title"><span class="ms panel__icon">autorenew</span>Live Refresh</h2></div>
+            <div class="panel__body form">
+              <label class="field">
+                <span class="field__label">Status poll interval</span>
+                <select id="setRefreshMs">
+                  <option value="0">Paused</option>
+                  <option value="2000">2 seconds</option>
+                  <option value="5000" selected>5 seconds</option>
+                  <option value="10000">10 seconds</option>
+                  <option value="30000">30 seconds</option>
+                </select>
+              </label>
+              <label class="check">
+                <input id="setAutoLogs" type="checkbox">
+                <span>Also refresh the log tail on every poll</span>
+              </label>
+              <label class="check">
+                <input id="setAutoPredictions" type="checkbox">
+                <span>Also refresh the prediction stream on every poll</span>
+              </label>
+              <label class="field">
+                <span class="field__label">Rows per page (trades)</span>
+                <select id="setPageSize">
+                  <option>20</option>
+                  <option selected>50</option>
+                  <option>100</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel__head"><h2 class="panel__title"><span class="ms panel__icon">keyboard</span>Keyboard</h2></div>
+            <div class="panel__body">
+              <ul class="shortcuts" id="shortcutList"></ul>
+            </div>
+          </section>
+
+          <section class="panel panel--danger">
+            <div class="panel__head"><h2 class="panel__title"><span class="ms panel__icon">warning</span>Danger Zone</h2></div>
+            <div class="panel__body form">
+              <p class="muted">Force stop kills the bot process even while contracts are open or orders are pending. Open positions will not be closed for you and must be settled or handled on Deriv.</p>
+              <div class="form__row">
+                <button class="btn btn--danger" id="forceStopBtn" type="button"><span class="ms">dangerous</span>Force stop bot</button>
+                <button class="btn btn--surface" id="clearLocalBtn" type="button"><span class="ms">delete_sweep</span>Clear saved settings</button>
+              </div>
+            </div>
+          </section>
+        </div>
       </section>
     </main>
 
-    <div id="toast" role="status"></div>
+    <!-- ===================== BOT CONTROLS DRAWER ===================== -->
+    <aside class="drawer drawer--controls" id="controlsDrawer" aria-hidden="true">
+      <div class="drawer__head">
+        <h2 class="drawer__title">Bot Controls</h2>
+        <button class="iconbtn" data-close-drawer type="button"><span class="ms">close</span></button>
+      </div>
+      <div class="drawer__body">
+        <section class="drawer__section">
+          <h3 class="drawer__label">Connection</h3>
+          <label class="field">
+            <span class="field__label">API URL</span>
+            <input id="apiUrl" type="url" spellcheck="false" value="http://127.0.0.1:8765">
+          </label>
+          <label class="field">
+            <span class="field__label">Token</span>
+            <span class="field__reveal">
+              <input id="apiToken" type="password" spellcheck="false" autocomplete="off">
+              <button class="iconbtn" id="revealTokenBtn2" type="button" title="Show token"><span class="ms">visibility</span></button>
+            </span>
+          </label>
+          <button class="btn btn--surface btn--block" id="connectBtn" type="button">
+            <span class="ms">sync</span>Connect
+          </button>
+        </section>
+
+        <section class="drawer__section">
+          <h3 class="drawer__label">Trading</h3>
+          <div class="statcard">
+            <div class="statcard__row">
+              <span>Status</span>
+              <span class="statcard__value" id="drawerStatus">Unknown</span>
+            </div>
+            <div class="statcard__row">
+              <span>Process ID</span>
+              <span class="statcard__value mono" id="drawerPid">--</span>
+            </div>
+            <div class="statcard__row">
+              <span>Open / pending</span>
+              <span class="statcard__value mono" id="drawerExposure">0 / 0</span>
+            </div>
+            <div class="statcard__row">
+              <span>Warmup active</span>
+              <span class="statcard__value mono" id="drawerWarmup">no</span>
+            </div>
+          </div>
+          <label class="field">
+            <span class="field__label">Warmup minutes</span>
+            <input id="warmupMinutes" type="number" min="0" step="1" value="0">
+          </label>
+          <button class="btn btn--success btn--block" id="startBtn" type="button">
+            <span class="ms">play_arrow</span>Start Bot
+          </button>
+          <button class="btn btn--danger btn--block" id="stopBtn" type="button">
+            <span class="ms">stop</span>Stop Bot
+          </button>
+        </section>
+
+        <section class="drawer__section">
+          <h3 class="drawer__label">Last error</h3>
+          <pre class="codeblock" id="drawerError">none</pre>
+        </section>
+      </div>
+    </aside>
+
+    <!-- ===================== TRADE DETAIL DRAWER ===================== -->
+    <aside class="drawer drawer--detail" id="tradeDrawer" aria-hidden="true">
+      <div class="drawer__head">
+        <h2 class="drawer__title">Trade Details</h2>
+        <button class="iconbtn" data-close-drawer type="button"><span class="ms">close</span></button>
+      </div>
+      <div class="drawer__body" id="tradeDrawerBody"></div>
+    </aside>
+
+    <!-- ===================== SYMBOL DETAIL DRAWER ===================== -->
+    <aside class="drawer drawer--detail" id="symbolDrawer" aria-hidden="true">
+      <div class="drawer__head" id="symbolDrawerHead"></div>
+      <div class="drawer__body" id="symbolDrawerBody"></div>
+      <div class="drawer__foot">
+        <button class="btn btn--primary btn--block" id="applySymbolBtn" type="button">Apply to symbol</button>
+      </div>
+    </aside>
+
+    <div class="scrim" id="scrim" hidden></div>
+
+    <!-- ===================== MODAL ===================== -->
+    <div class="modal-root" id="modalRoot" hidden>
+      <div class="modal-scrim" data-modal-cancel></div>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal__icon" id="modalIcon"><span class="ms">warning</span></div>
+        <h3 class="modal__title" id="modalTitle">Confirm</h3>
+        <p class="modal__body" id="modalBody"></p>
+        <label class="check modal__check" id="modalCheckWrap" hidden>
+          <input id="modalCheck" type="checkbox">
+          <span id="modalCheckLabel"></span>
+        </label>
+        <div class="modal__actions">
+          <button class="btn btn--surface" id="modalCancel" type="button" data-modal-cancel>Cancel</button>
+          <button class="btn btn--danger" id="modalConfirm" type="button">Confirm</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== COMMAND PALETTE ===================== -->
+    <div class="palette-root" id="paletteRoot" hidden>
+      <div class="modal-scrim" data-palette-cancel></div>
+      <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette">
+        <div class="palette__input">
+          <span class="ms">search</span>
+          <input id="paletteInput" type="text" placeholder="Jump to a view or run a command..." spellcheck="false" autocomplete="off">
+          <kbd>esc</kbd>
+        </div>
+        <ul class="palette__list" id="paletteList"></ul>
+      </div>
+    </div>
+
+    <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
     <script src="app.js"></script>
   </body>
 </html>
