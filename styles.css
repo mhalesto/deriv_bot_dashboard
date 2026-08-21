@@ -298,6 +298,18 @@ body.drawer-open .topbar { right: var(--drawer-w); }
 }
 .refresh-state .ms { font-size: 16px; }
 .refresh-state.is-live .ms { animation: spin 4s linear infinite; color: var(--secondary); }
+.refresh-select {
+  width: 76px;
+  min-height: 30px;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--r-lg);
+  background: var(--surface-container-low);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+.refresh-select:hover, .refresh-select:focus { border-color: var(--border-subtle); color: var(--on-surface); outline: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .avatar {
@@ -718,6 +730,80 @@ body.drawer-open .main { margin-right: var(--drawer-w); }
 .curve-legend span { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .swatch { width: 10px; height: 3px; border-radius: var(--r-pill); display: inline-block; }
 .swatch--pos { background: var(--secondary); }
+.swatch--brier { background: var(--primary); }
+.swatch--ece { background: var(--status-warning); }
+
+/* ---------------- model validation ---------------- */
+.overview-lower { margin-top: 24px; }
+.panel--model { min-height: 390px; }
+#modelQualityChart {
+  width: 100%;
+  height: 230px;
+  display: block;
+  padding: 0 12px;
+}
+.model-legend {
+  min-height: 44px;
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.model-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.model-legend .mono { margin-left: auto; }
+.model-summary { display: grid; }
+.model-row {
+  width: 100%;
+  min-height: 46px;
+  padding: 8px 16px;
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: transparent;
+  color: var(--on-surface);
+  text-align: left;
+}
+.model-row:last-child { border-bottom: 0; }
+.model-row:hover { background: rgba(194, 193, 255, 0.05); }
+.model-row__symbol { display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 12px; font-weight: 700; }
+.model-row__detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 11px; }
+.symbol-status-detail { max-width: 230px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.validation-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  background: var(--surface-container-low);
+}
+.validation-status > .ms { font-size: 24px; }
+.validation-status strong, .validation-status span { display: block; }
+.validation-status strong { margin-bottom: 3px; font-size: 13px; }
+.validation-status span { color: var(--text-secondary); font-size: 11px; }
+.validation-status--good > .ms { color: var(--secondary); }
+.validation-status--warn > .ms { color: var(--status-warning); }
+.validation-reasons {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(255, 176, 0, 0.22);
+  border-radius: var(--r-lg);
+  background: rgba(255, 176, 0, 0.05);
+}
+.validation-reasons > span { color: var(--status-warning); font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.validation-reasons > div { display: flex; align-items: center; gap: 8px; color: var(--on-surface-variant); font-family: var(--font-mono); font-size: 11px; }
+.report-raw summary { color: var(--text-secondary); cursor: pointer; font-size: 11px; }
+.report-raw .codeblock { margin-top: 10px; max-height: 280px; overflow: auto; }
 
 /* ---------------- tables ---------------- */
 .table-wrap { width: 100%; overflow: auto; }
@@ -1582,4 +1668,47 @@ body.drawer-overlay .toasts { right: calc(var(--drawer-w-lg) + 24px); }
   .statuses { display: none; }
   .loggrid { grid-template-columns: 96px 80px 1fr; }
   .loggrid > :nth-child(4), .loggrid > :nth-child(5) { display: none; }
+  .model-row { grid-template-columns: 78px minmax(0, 1fr); }
+  .model-row .chip { display: none; }
+  .model-legend { align-items: flex-start; gap: 8px 14px; }
+  .model-legend .mono { width: 100%; margin-left: 0; }
+}
+
+@media (max-width: 600px) {
+  :root { --sidebar-w: 52px; }
+  .main { padding: 16px 10px 40px; }
+  .topbar { padding-left: 10px; padding-right: 10px; }
+  .topbar__left { gap: 8px; }
+  .topbar__right { gap: 6px; }
+  .topbar__rule, #refreshNowBtn, .avatar { display: none; }
+  #controlsBtn { width: 36px; padding: 8px; font-size: 0; }
+  #controlsBtn .ms { font-size: 18px; }
+  .refresh-select { width: 68px; }
+  .kpi-grid { gap: 10px; }
+  .kpi { min-height: 118px; padding: 14px; }
+  .panel__head { min-height: 56px; padding: 12px 14px; flex-wrap: wrap; }
+  .panel__title { font-size: 14px; }
+  .segmented { width: 100%; overflow: visible; }
+  .seg { min-width: 0; flex: 1 1 20%; padding-left: 5px; padding-right: 5px; font-size: 9px; }
+  #modelGateSummary { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  #modelQualityChart { height: 205px; padding: 0 6px; }
+  .model-legend { padding-left: 14px; padding-right: 14px; }
+  .model-row { padding-left: 12px; padding-right: 12px; grid-template-columns: 62px minmax(0, 1fr); gap: 8px; }
+  .model-row__detail { font-size: 10px; }
+  .curve-legend { padding-left: 14px; padding-right: 14px; }
+  #tradesHead { display: none; }
+  #tradesList { max-height: none; overflow: visible; }
+  .traderow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 14px 18px;
+    padding: 16px;
+    align-items: start;
+  }
+  .traderow > :nth-child(1) { grid-column: 1; grid-row: 1; }
+  .traderow > :nth-child(2) { grid-column: 1; grid-row: 2; }
+  .traderow > :nth-child(3) { grid-column: 2; grid-row: 2; align-items: flex-end; }
+  .traderow > :nth-child(4) { grid-column: 1 / -1; grid-row: 3; }
+  .traderow > :nth-child(5) { grid-column: 2; grid-row: 1; }
+  .traderow__primary, .traderow__pnl { white-space: nowrap; }
+  .traderow__conf .meter { min-width: 80px; }
 }

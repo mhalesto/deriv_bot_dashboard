@@ -36,6 +36,7 @@ const state = {
   pnlRange: "all",
   pnlRows: [],
   equity: [],
+  modelReports: [],
 
   symbolDirty: {},
   symbolsEnabledOnly: false,
@@ -108,6 +109,15 @@ function fmtAge(seconds) {
   if (n < 60) return `${n.toFixed(0)}s`;
   if (n < 3600) return `${(n / 60).toFixed(1)}m`;
   return `${(n / 3600).toFixed(1)}h`;
+}
+
+function fmtInterval(milliseconds) {
+  const value = Number(milliseconds || 0);
+  if (!value) return "Off";
+  if (value < 60000) return `${value / 1000} sec`;
+  if (value < 3600000) return `${value / 60000} min`;
+  if (value < 86400000) return `${value / 3600000} hour${value === 3600000 ? "" : "s"}`;
+  return `${value / 86400000} day`;
 }
 
 function clockOf(isoish) {
@@ -339,11 +349,9 @@ function setRefreshIndicator() {
   const el = $("refreshState");
   const live = state.connected && state.refreshMs > 0;
   el.classList.toggle("is-live", live);
-  $("refreshLabel").textContent = !state.connected
-    ? "offline"
-    : state.refreshMs > 0
-      ? `${Math.round(state.refreshMs / 1000)}s`
-      : "paused";
+  $("refreshMs").value = String(state.refreshMs);
+  $("setRefreshMs").value = String(state.refreshMs);
+  el.title = state.connected ? `Auto-refresh: ${fmtInterval(state.refreshMs)}` : "Controller offline";
 }
 
 function scheduleRefresh() {
@@ -353,6 +361,13 @@ function scheduleRefresh() {
     state.refreshTimer = setInterval(tick, state.refreshMs);
   }
   setRefreshIndicator();
+}
+
+function updateRefreshInterval(value, { notify = true } = {}) {
+  state.refreshMs = Number(value || 0);
+  localStorage.setItem(LS.refreshMs, String(state.refreshMs));
+  scheduleRefresh();
+  if (notify) toast(state.refreshMs ? `Polling every ${fmtInterval(state.refreshMs)}` : "Auto-refresh off", "info");
 }
 
 async function tick() {
@@ -402,6 +417,7 @@ async function refreshStatus() {
   renderKpis(metrics, runtime, proc);
   renderRiskTiles(runtime);
   renderStrategyTable(metrics);
+  renderModelValidation(runtime);
   renderSymbols();
   renderSymbolSelects();
   renderControlsDrawer(runtime, proc);
@@ -409,6 +425,8 @@ async function refreshStatus() {
 
   await refreshPnlRange();
   await refreshEquity();
+  const currentView = location.hash.slice(1) || localStorage.getItem(LS.view) || "overview";
+  if (currentView === "trades") await loadTrades({ quiet: true, preservePage: true });
 }
 
 function kpiTile({ label, value, sub, kind = "", glow = false, meter = null, pair = false }) {
@@ -455,7 +473,11 @@ function renderKpis(metrics, runtime, proc) {
       kind: Number(overall.win_rate || 0) >= 50 ? "pos" : "neg",
       sub: `avg ${fmtSignedMoney(overall.avg_pnl || 0, 4)} / trade`,
     }),
-    kpiTile({ label: "Trades", value: fmtInt(overall.trades || 0), sub: `avg stake ${fmtMoney(overall.avg_stake || 0)}` }),
+    kpiTile({
+      label: "Settled Trades",
+      value: fmtInt(overall.trades || 0),
+      sub: `${fmtInt(runtime.open_trades_total || 0)} active · avg stake ${fmtMoney(overall.avg_stake || 0)}`,
+    }),
   ].join("");
 }
 
@@ -466,11 +488,14 @@ function renderRiskTiles(runtime) {
   const trades = Number(runtime.confirmed_trades_today || 0);
   const cap = Number(runtime.max_trades_per_day || 0);
   const capPct = cap > 0 ? Math.min(100, (trades / cap) * 100) : 0;
+  const openTrades = Number(runtime.open_trades_total || 0);
+  const openLimit = Number(runtime.max_open_trades_total || 0);
 
   const symbolRows = Object.values(state.runtimeSymbols || {});
   const enabled = symbolRows.filter((s) => s.enabled);
   const modelsReady = symbolRows.filter((s) => s.model_loaded).length;
   const training = symbolRows.filter((s) => s.model_training).length;
+  const rejected = enabled.filter((s) => s.last_training_report?.accepted === false).length;
 
   $("riskTiles").innerHTML = [
     kpiTile({
@@ -490,9 +515,9 @@ function renderRiskTiles(runtime) {
     }),
     kpiTile({
       label: "Exposure",
-      value: `${fmtInt(runtime.open_trades_total || 0)} open`,
-      kind: Number(runtime.open_trades_total || 0) > 0 ? "warn" : "",
-      sub: `${fmtInt(runtime.pending_orders_total || 0)} pending order(s)`,
+      value: `${fmtInt(openTrades)} / ${openLimit > 0 ? fmtInt(openLimit) : "∞"} open`,
+      kind: openTrades > 0 ? "warn" : "",
+      sub: `${fmtInt(runtime.pending_orders_total || 0)} pending · ${fmtInt(runtime.max_open_trades_per_symbol || 0)} per symbol`,
     }),
     kpiTile({
       label: "Warmup",
@@ -507,10 +532,10 @@ function renderRiskTiles(runtime) {
       sub: runtime.ws_last_message_type ? `last: ${runtime.ws_last_message_type}` : "no messages yet",
     }),
     kpiTile({
-      label: "Models",
-      value: `${modelsReady} / ${enabled.length || symbolRows.length}`,
+      label: "Execution",
+      value: `${modelsReady} ML / ${enabled.length || symbolRows.length} rules`,
       kind: training > 0 ? "accent" : "",
-      sub: training > 0 ? `${training} training now` : "loaded / enabled",
+      sub: training > 0 ? `${training} training now` : `${rejected} ML candidate${rejected === 1 ? "" : "s"} gated`,
     }),
   ].join("");
 }
@@ -725,6 +750,117 @@ function drawEquityChart() {
   $("equityMeta").textContent = `${points.length} trades · peak ${fmtSignedMoney(peak)} · dd ${fmtMoney(drawdown)}`;
 }
 
+/* ---------------- model validation ---------------- */
+function modelGateLimits(runtime = {}) {
+  return {
+    minTrades: Number(runtime.model_gate_limits?.min_holdout_trades ?? 8),
+    minEv: Number(runtime.model_gate_limits?.min_holdout_ev ?? 0),
+    maxBrier: Number(runtime.model_gate_limits?.max_brier ?? 0.25),
+    maxEce: Number(runtime.model_gate_limits?.max_ece ?? 0.15),
+  };
+}
+
+function modelFailureReasons(report = {}, limits = modelGateLimits()) {
+  if (Array.isArray(report.rejection_reasons) && report.rejection_reasons.length) {
+    return report.rejection_reasons;
+  }
+  const reasons = [];
+  const trades = Number(report.holdout_trades || 0);
+  const ev = Number(report.holdout_ev_per_stake || 0);
+  const brier = report.val_brier === null || report.val_brier === undefined ? Number.NaN : Number(report.val_brier);
+  const ece = report.val_ece === null || report.val_ece === undefined ? Number.NaN : Number(report.val_ece);
+  if (trades < limits.minTrades) reasons.push(`holdout ${trades}/${limits.minTrades} trades`);
+  if (ev <= limits.minEv) reasons.push(`EV ${ev.toFixed(3)} ≤ ${limits.minEv.toFixed(3)}`);
+  if (!Number.isFinite(brier) || brier > limits.maxBrier) reasons.push(`Brier ${Number.isFinite(brier) ? brier.toFixed(3) : "n/a"} > ${limits.maxBrier.toFixed(3)}`);
+  if (!Number.isFinite(ece) || ece > limits.maxEce) reasons.push(`ECE ${Number.isFinite(ece) ? ece.toFixed(3) : "n/a"} > ${limits.maxEce.toFixed(3)}`);
+  return reasons;
+}
+
+function renderModelValidation(runtime = {}) {
+  const limits = modelGateLimits(runtime);
+  state.modelReports = Object.entries(state.runtimeSymbols || {})
+    .filter(([, rt]) => rt.enabled && rt.last_training_report)
+    .map(([symbol, rt]) => ({ symbol, loaded: Boolean(rt.model_loaded), ...rt.last_training_report }));
+
+  const accepted = state.modelReports.filter((r) => r.accepted || r.loaded).length;
+  const rejected = state.modelReports.filter((r) => r.accepted === false && !r.loaded).length;
+  const summary = $("modelGateSummary");
+  summary.textContent = state.modelReports.length ? `${accepted} accepted · ${rejected} gated` : "no reports";
+  summary.className = `chip mono ${accepted ? "chip--good" : rejected ? "chip--warn" : "chip--muted"}`;
+
+  $("modelValidationSummary").innerHTML = state.modelReports.length
+    ? state.modelReports.map((report) => {
+      const reasons = modelFailureReasons(report, limits);
+      const passed = Boolean(report.accepted || report.loaded);
+      const detail = passed
+        ? `Accepted · ${fmtInt(report.holdout_trades)} holdout trades · EV ${fmtNum(report.holdout_ev_per_stake, 3)}`
+        : `Rules active · ${reasons.slice(0, 2).join(" · ") || "candidate did not pass"}`;
+      return `<button class="model-row" type="button" data-model-symbol="${escapeHtml(report.symbol)}">
+        <span class="model-row__symbol"><i class="dot dot--${passed ? "good" : "warn"}"></i>${escapeHtml(report.symbol)}</span>
+        <span class="model-row__detail">${escapeHtml(detail)}</span>
+        <span class="chip chip--${passed ? "good" : "warn"}">${passed ? "ML accepted" : "ML gated"}</span>
+      </button>`;
+    }).join("")
+    : emptyState("No model validation reports yet", "model_training");
+  drawModelQualityChart(limits);
+}
+
+function drawModelQualityChart(limits = modelGateLimits()) {
+  const canvas = $("modelQualityChart");
+  if (!canvas || !canvas.clientWidth) return;
+  const ctx = canvas.getContext("2d");
+  const ratio = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth;
+  const height = Math.max(190, canvas.clientHeight || 230);
+  canvas.width = width * ratio;
+  canvas.height = height * ratio;
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  const styles = getComputedStyle(document.documentElement);
+  const brierColor = styles.getPropertyValue("--primary").trim() || "#c2c1ff";
+  const eceColor = styles.getPropertyValue("--status-warning").trim() || "#ffb000";
+  const lineColor = styles.getPropertyValue("--border-subtle").trim() || "#2b2f36";
+  const textColor = styles.getPropertyValue("--text-secondary").trim() || "#9ba3af";
+  const reports = state.modelReports;
+  if (!reports.length) {
+    ctx.fillStyle = textColor;
+    ctx.font = "12px Inter, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Validation data will appear after training", width / 2, height / 2);
+    return;
+  }
+
+  const pad = { l: 34, r: 12, t: 18, b: 34 };
+  const chartW = width - pad.l - pad.r;
+  const chartH = height - pad.t - pad.b;
+  const values = reports.flatMap((r) => [Number(r.val_brier || 0), Number(r.val_ece || 0)]);
+  const maxValue = Math.max(0.35, ...values, limits.maxBrier, limits.maxEce);
+  const yAt = (v) => pad.t + chartH - (Math.max(0, v) / maxValue) * chartH;
+
+  ctx.strokeStyle = lineColor;
+  ctx.lineWidth = 1;
+  [0, maxValue / 2, maxValue].forEach((value) => {
+    const y = yAt(value);
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(width - pad.r, y); ctx.stroke();
+    ctx.fillStyle = textColor; ctx.font = "10px ui-monospace, monospace"; ctx.textAlign = "right";
+    ctx.fillText(value.toFixed(2), pad.l - 5, y + 3);
+  });
+
+  const groupW = chartW / reports.length;
+  const barW = Math.min(18, Math.max(7, groupW * 0.22));
+  reports.forEach((report, index) => {
+    const center = pad.l + groupW * index + groupW / 2;
+    [[Number(report.val_brier || 0), brierColor, -barW - 2], [Number(report.val_ece || 0), eceColor, 2]].forEach(([value, color, offset]) => {
+      const y = yAt(value);
+      ctx.fillStyle = color;
+      ctx.fillRect(center + offset, y, barW, pad.t + chartH - y);
+    });
+    ctx.fillStyle = textColor; ctx.font = "10px ui-monospace, monospace"; ctx.textAlign = "center";
+    ctx.fillText(report.symbol.replace("R_", "R"), center, height - 10);
+  });
+}
+
 /* =============================================================
    SYMBOLS
    ============================================================= */
@@ -741,7 +877,10 @@ function symbolStatus(rt) {
   if (rt.model_training) return { text: "Training model", kind: "info" };
   if (rt.model_loaded) return { text: "Model accepted", kind: "good" };
   const report = rt.last_training_report || {};
-  if (report.accepted === false) return { text: "Model rejected", kind: "warn" };
+  if (report.accepted === false) {
+    const reason = modelFailureReasons(report, modelGateLimits(state.status?.runtime || {}))[0] || "candidate did not pass validation";
+    return { text: "ML gated", kind: "warn", detail: `Rules active · ${reason}` };
+  }
   return { text: "Rules only", kind: "muted" };
 }
 
@@ -812,8 +951,8 @@ function renderSymbols() {
             </span>
           </span>
         </td>
-        <td><span class="chip chip--${status.kind}">${escapeHtml(status.text)}</span>
-          <div class="symcell__code" style="margin-top:4px">${fmtInt(rt?.buffer_candles || 0)} candles</div></td>
+        <td><span class="chip chip--${status.kind}" title="${escapeHtml(status.detail || status.text)}">${escapeHtml(status.text)}</span>
+          <div class="symcell__code symbol-status-detail">${escapeHtml(status.detail || `${fmtInt(rt?.buffer_candles || 0)} candles`)}</div></td>
         ${inputs}
         <td class="num">${fmtInt(rt?.trade_count || 0)}</td>
         <td class="num">${threshold}</td>
@@ -833,6 +972,34 @@ function renderSymbolSelects() {
     el.innerHTML = options;
     if (current && names.includes(current)) el.value = current;
   });
+}
+
+function renderModelReport(report) {
+  if (!report) return '<div class="empty"><span class="ms">model_training</span>No training report recorded</div>';
+  const limits = modelGateLimits(state.status?.runtime || {});
+  const reasons = modelFailureReasons(report, limits);
+  const accepted = Boolean(report.accepted);
+  return `
+    <div class="validation-status validation-status--${accepted ? "good" : "warn"}">
+      <span class="ms">${accepted ? "verified" : "shield"}</span>
+      <div>
+        <strong>${accepted ? "Candidate accepted" : "Candidate safely gated"}</strong>
+        <span>${accepted ? "Eligible for ML execution when enabled" : "Rule strategies remain active while ML stays out of execution"}</span>
+      </div>
+    </div>
+    <div class="kv-grid">
+      <div class="kv"><span class="kv__label">Accuracy</span><span class="kv__value">${fmtPct(Number(report.val_accuracy) * 100)}</span></div>
+      <div class="kv"><span class="kv__label">Brier</span><span class="kv__value">${report.val_brier != null ? fmtNum(report.val_brier, 4) : "--"}</span></div>
+      <div class="kv"><span class="kv__label">ECE</span><span class="kv__value">${report.val_ece != null ? fmtNum(report.val_ece, 4) : "--"}</span></div>
+      <div class="kv"><span class="kv__label">Holdout trades</span><span class="kv__value">${fmtInt(report.holdout_trades || 0)}</span></div>
+      <div class="kv"><span class="kv__label">Holdout EV/stake</span><span class="kv__value">${fmtNum(report.holdout_ev_per_stake, 4)}</span></div>
+      <div class="kv"><span class="kv__label">Calibration</span><span class="kv__value">${escapeHtml(report.calibration_method || "none")}</span></div>
+    </div>
+    ${reasons.length ? `<div class="validation-reasons"><span>Failed gates</span>${reasons.map((reason) => `<div><i class="dot dot--warn"></i>${escapeHtml(reason)}</div>`).join("")}</div>` : ""}
+    <details class="report-raw">
+      <summary>Raw validation report</summary>
+      <pre class="codeblock">${escapeHtml(JSON.stringify(report, null, 2))}</pre>
+    </details>`;
 }
 
 async function saveSymbols() {
@@ -904,8 +1071,8 @@ async function openSymbolDetail(symbol) {
       </div>
     </section>
     <section>
-      <h3 class="section-title">Last training report</h3>
-      <pre class="codeblock">${escapeHtml(rt.last_training_report ? JSON.stringify(rt.last_training_report, null, 2) : "No training report recorded")}</pre>
+      <h3 class="section-title">Last ML validation</h3>
+      ${renderModelReport(rt.last_training_report)}
     </section>
     <section>
       <h3 class="section-title">Recent trades</h3>
@@ -965,16 +1132,19 @@ async function applySymbolAdvanced() {
 /* =============================================================
    TRADES
    ============================================================= */
-async function loadTrades({ quiet = false } = {}) {
+async function loadTrades({ quiet = false, preservePage = false } = {}) {
   try {
     const symbol = $("tradeSymbol").value;
     const suffix = symbol ? `?symbol=${encodeURIComponent(symbol)}&limit=500` : "?limit=500";
     const data = await api(`/api/trades${suffix}`);
-    state.trades = data.trades || [];
-    state.tradePage = 1;
+    const active = data.active_trades || [];
+    const activeIds = new Set(active.map((trade) => String(trade.contract_id)));
+    const settled = (data.trades || []).filter((trade) => !activeIds.has(String(trade.contract_id)));
+    state.trades = [...active, ...settled];
+    if (!preservePage) state.tradePage = 1;
     renderTradeMetrics();
     renderTrades();
-    if (!quiet) toast(`Loaded ${state.trades.length} trade${state.trades.length === 1 ? "" : "s"}`, "good");
+    if (!quiet) toast(`Loaded ${state.trades.length} contract${state.trades.length === 1 ? "" : "s"}`, "good", `${active.length} active · ${settled.length} settled`);
   } catch (err) {
     if (!quiet) toast(err.message, "bad", "Trade load failed");
   }
@@ -1003,12 +1173,13 @@ function filteredTrades() {
 function renderTradeMetrics() {
   const rows = state.trades;
   const settled = rows.filter((t) => t.outcome === 0 || t.outcome === 1);
+  const active = rows.filter((t) => t.outcome === null || t.outcome === undefined);
   const wins = settled.filter((t) => Number(t.outcome) === 1).length;
-  const pnl = rows.reduce((sum, t) => sum + Number(t.pnl || 0), 0);
+  const pnl = settled.reduce((sum, t) => sum + Number(t.pnl || 0), 0);
   const strategies = new Set(rows.map((t) => t.strategy_source).filter(Boolean));
 
   $("tradeMetrics").innerHTML = [
-    kpiTile({ label: "Loaded Trades", value: fmtInt(rows.length), sub: `${settled.length} settled` }),
+    kpiTile({ label: "Contracts Loaded", value: fmtInt(rows.length), sub: `${settled.length} settled · ${active.length} active` }),
     kpiTile({
       label: "Win Rate",
       value: settled.length ? fmtPct((wins / settled.length) * 100) : "--",
@@ -1016,10 +1187,10 @@ function renderTradeMetrics() {
       sub: `${wins}W / ${settled.length - wins}L`,
     }),
     kpiTile({
-      label: "PnL (loaded)",
+      label: "Settled PnL",
       value: fmtSignedMoney(pnl),
       kind: pnl > 0 ? "pos" : pnl < 0 ? "neg" : "",
-      sub: rows.length ? `avg ${fmtSignedMoney(pnl / rows.length, 4)}` : "no trades",
+      sub: settled.length ? `avg ${fmtSignedMoney(pnl / settled.length, 4)}` : "no settled trades",
     }),
     kpiTile({
       label: "Strategies",
@@ -1075,6 +1246,7 @@ function renderTrades() {
         </div>
         <div class="traderow__stack traderow__stack--end">
           <span class="traderow__pnl traderow__pnl--${pnl >= 0 ? "pos" : "neg"}">${fmtSignedMoney(pnl, 4)}</span>
+          ${settled ? "" : '<span class="traderow__secondary">live PnL</span>'}
           <span class="tag tag--${settled ? (won ? "won" : "lost") : "open"}">${settled ? (won ? "Won" : "Lost") : "Open"}</span>
         </div>
         <div class="traderow__stack traderow__stack--end">
@@ -1174,6 +1346,7 @@ async function openTradeDetail(contractId) {
       <div class="kv"><span class="kv__label">Probability</span><span class="kv__value">${full.probability_used != null ? fmtNum(full.probability_used, 4) : "--"}</span></div>
       <div class="kv"><span class="kv__label">Expected value</span><span class="kv__value kv__value--accent">${full.expected_value != null ? fmtNum(full.expected_value, 4) : "--"}</span></div>
       <div class="kv"><span class="kv__label">Payout rate</span><span class="kv__value">${full.payout_rate_used != null ? fmtNum(full.payout_rate_used, 3) : "--"}</span></div>
+      ${!settled ? `<div class="kv"><span class="kv__label">Expires</span><span class="kv__value">${full.expiry_time ? escapeHtml(epochToText(full.expiry_time)) : "--"}</span></div>` : ""}
       <div class="kv"><span class="kv__label">Regime</span><span class="kv__value">${escapeHtml(full.market_regime_at_trade || "--")}</span></div>
     </div>
 
@@ -1603,7 +1776,7 @@ function renderControlsDrawer(runtime, proc) {
   const running = Boolean(proc.running);
   $("drawerStatus").innerHTML = `<i class="dot ${running ? "dot--good dot--pulse" : ""}"></i>${running ? "Running" : "Stopped"}`;
   $("drawerPid").textContent = proc.pid || "--";
-  $("drawerExposure").textContent = `${runtime.open_trades_total || 0} / ${runtime.pending_orders_total || 0}`;
+  $("drawerExposure").textContent = `${runtime.open_trades_total || 0} / ${runtime.max_open_trades_total || "∞"}`;
   $("drawerWarmup").textContent = runtime.warmup_active ? "yes" : "no";
   $("drawerError").textContent = runtime.last_error || "none";
   $("startBtn").disabled = running;
@@ -1707,6 +1880,7 @@ function renderShortcuts() {
 
 function applySettingsToInputs() {
   $("setRefreshMs").value = String(state.refreshMs);
+  $("refreshMs").value = String(state.refreshMs);
   $("setAutoLogs").checked = state.autoLogs;
   $("setAutoPredictions").checked = state.autoPredictions;
   $("setPageSize").value = String(state.pageSize);
@@ -1832,6 +2006,7 @@ function bindConnection() {
     else openDrawer("controlsDrawer");
   });
   $("refreshNowBtn").addEventListener("click", () => tick());
+  $("refreshMs").addEventListener("change", (e) => updateRefreshInterval(e.target.value));
   $("startBtn").addEventListener("click", startBot);
   $("stopBtn").addEventListener("click", () => stopBot());
   $("forceStopBtn").addEventListener("click", () => stopBot({ force: true }));
@@ -1888,9 +2063,16 @@ function bindOverview() {
     switchView("trades");
     if (!state.trades.length) loadTrades();
   });
+  $("modelValidationSummary").addEventListener("click", (e) => {
+    const row = e.target.closest("[data-model-symbol]");
+    if (row) openSymbolDetail(row.dataset.modelSymbol);
+  });
   window.addEventListener("resize", () => {
     clearTimeout(window.__equityResize);
-    window.__equityResize = setTimeout(drawEquityChart, 150);
+    window.__equityResize = setTimeout(() => {
+      drawEquityChart();
+      drawModelQualityChart(modelGateLimits(state.status?.runtime || {}));
+    }, 150);
   });
 }
 
@@ -2095,10 +2277,7 @@ function bindLogs() {
 
 function bindSettings() {
   $("setRefreshMs").addEventListener("change", (e) => {
-    state.refreshMs = Number(e.target.value);
-    localStorage.setItem(LS.refreshMs, String(state.refreshMs));
-    scheduleRefresh();
-    toast(state.refreshMs ? `Polling every ${state.refreshMs / 1000}s` : "Auto-refresh paused", "info");
+    updateRefreshInterval(e.target.value);
   });
   $("setAutoLogs").addEventListener("change", (e) => {
     state.autoLogs = e.target.checked;

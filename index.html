@@ -68,10 +68,24 @@
           <span class="status" id="authPill" title="Deriv authorization"><i class="dot"></i>AUTH</span>
         </div>
         <div class="topbar__rule"></div>
-        <div class="refresh-state" id="refreshState" title="Auto-refresh">
+        <label class="refresh-state" id="refreshState" title="Auto-refresh interval">
           <span class="ms">autorenew</span>
-          <span class="mono" id="refreshLabel">off</span>
-        </div>
+          <select class="refresh-select mono" id="refreshMs" aria-label="Auto-refresh interval">
+            <option value="0">Off</option>
+            <option value="2000">2 sec</option>
+            <option value="5000" selected>5 sec</option>
+            <option value="10000">10 sec</option>
+            <option value="15000">15 sec</option>
+            <option value="30000">30 sec</option>
+            <option value="60000">1 min</option>
+            <option value="300000">5 min</option>
+            <option value="900000">15 min</option>
+            <option value="3600000">1 hour</option>
+            <option value="21600000">6 hours</option>
+            <option value="43200000">12 hours</option>
+            <option value="86400000">1 day</option>
+          </select>
+        </label>
       </div>
       <div class="topbar__right">
         <button class="btn btn--ghost" id="refreshNowBtn" type="button" title="Refresh now">
@@ -124,17 +138,35 @@
           </section>
         </div>
 
-        <section class="panel panel--glow">
-          <div class="panel__head">
-            <h2 class="panel__title"><span class="ms panel__icon">strategy</span>Strategy Edge</h2>
-            <button class="linkbtn" id="strategyToTradesBtn" type="button">
-              View trades <span class="ms">arrow_forward</span>
-            </button>
-          </div>
-          <div class="panel__body panel__body--flush">
-            <div class="table-wrap" id="strategyTable"></div>
-          </div>
-        </section>
+        <div class="grid-2-1 overview-lower">
+          <section class="panel panel--model">
+            <div class="panel__head">
+              <h2 class="panel__title"><span class="ms panel__icon">model_training</span>ML Validation</h2>
+              <span class="chip chip--muted mono" id="modelGateSummary">no reports</span>
+            </div>
+            <div class="panel__body panel__body--flush">
+              <canvas id="modelQualityChart" height="230"></canvas>
+              <div class="model-legend">
+                <span><i class="swatch swatch--brier"></i>Brier score</span>
+                <span><i class="swatch swatch--ece"></i>Calibration error</span>
+                <span class="mono">lower is better</span>
+              </div>
+              <div class="model-summary" id="modelValidationSummary"></div>
+            </div>
+          </section>
+
+          <section class="panel panel--glow">
+            <div class="panel__head">
+              <h2 class="panel__title"><span class="ms panel__icon">strategy</span>Settled Strategy Edge</h2>
+              <button class="linkbtn" id="strategyToTradesBtn" type="button">
+                View trades <span class="ms">arrow_forward</span>
+              </button>
+            </div>
+            <div class="panel__body panel__body--flush">
+              <div class="table-wrap" id="strategyTable"></div>
+            </div>
+          </section>
+        </div>
       </section>
 
       <!-- ===================== SYMBOLS ===================== -->
@@ -192,8 +224,8 @@
       <section class="view" id="view-trades">
         <div class="pagehead">
           <div>
-            <h1 class="pagehead__title">Trade History</h1>
-            <p class="pagehead__sub">Review execution logs and performance metrics.</p>
+            <h1 class="pagehead__title">Contracts</h1>
+            <p class="pagehead__sub">Monitor active contracts and review settled performance.</p>
           </div>
           <div class="pagehead__tools toolbar">
             <div class="field-search">
@@ -464,11 +496,19 @@ order by pnl desc</textarea>
               <label class="field">
                 <span class="field__label">Status poll interval</span>
                 <select id="setRefreshMs">
-                  <option value="0">Paused</option>
+                  <option value="0">Off</option>
                   <option value="2000">2 seconds</option>
                   <option value="5000" selected>5 seconds</option>
                   <option value="10000">10 seconds</option>
+                  <option value="15000">15 seconds</option>
                   <option value="30000">30 seconds</option>
+                  <option value="60000">1 minute</option>
+                  <option value="300000">5 minutes</option>
+                  <option value="900000">15 minutes</option>
+                  <option value="3600000">1 hour</option>
+                  <option value="21600000">6 hours</option>
+                  <option value="43200000">12 hours</option>
+                  <option value="86400000">1 day</option>
                 </select>
               </label>
               <label class="check">
