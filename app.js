@@ -256,7 +256,17 @@ async function refreshStatus() {
   setPill("apiPill", "API connected", "good");
   setPill("botPill", process.running ? "Bot running" : "Bot stopped", process.running ? "good" : "neutral");
   setPill("wsPill", runtime.ws_connected ? "WS connected" : "WS offline", runtime.ws_connected ? "good" : "warn");
-  $("lastUpdated").textContent = runtime.timestamp ? `Updated ${runtime.timestamp}` : "Connected";
+  const authorized = Boolean(runtime.deriv_authorized);
+  const lastError = runtime.last_error || "";
+  setPill(
+    "authPill",
+    authorized ? "Deriv authorized" : (lastError ? "Deriv error" : "Auth pending"),
+    authorized ? "good" : (lastError ? "bad" : (process.running ? "warn" : "neutral"))
+  );
+  $("authPill").title = authorized && runtime.deriv_loginid ? `Account ${runtime.deriv_loginid}` : lastError;
+  $("lastUpdated").textContent = runtime.timestamp
+    ? `Updated ${runtime.timestamp}${lastError ? ` | ${lastError}` : ""}`
+    : "Connected";
 
   renderMetrics(metrics, runtime, process);
   renderStrategyTable(metrics);
