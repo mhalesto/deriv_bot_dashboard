@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Deriv Bot Control</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Deriv Bot Control</h1>
+        <div class="subline" id="lastUpdated">Not connected</div>
+      </div>
+      <div class="status-strip">
+        <span class="pill neutral" id="apiPill">API</span>
+        <span class="pill neutral" id="botPill">Bot</span>
+        <span class="pill neutral" id="wsPill">WebSocket</span>
+      </div>
+    </header>
+
+    <section class="control-band">
+      <label>
+        <span>API URL</span>
+        <input id="apiUrl" type="url" spellcheck="false" value="http://127.0.0.1:8765">
+      </label>
+      <label>
+        <span>Token</span>
+        <input id="apiToken" type="password" spellcheck="false" autocomplete="off">
+      </label>
+      <button id="connectBtn">Connect</button>
+      <label class="small-field">
+        <span>Warmup</span>
+        <input id="warmupMinutes" type="number" min="0" step="1" value="0">
+      </label>
+      <button id="startBtn" class="success">Start</button>
+      <button id="stopBtn" class="danger">Stop</button>
+    </section>
+
+    <nav class="tabs" aria-label="Views">
+      <button class="tab active" data-view="overview">Overview</button>
+      <button class="tab" data-view="symbols">Symbols</button>
+      <button class="tab" data-view="trades">Trades</button>
+      <button class="tab" data-view="predictions">Predictions</button>
+      <button class="tab" data-view="query">Query</button>
+      <button class="tab" data-view="logs">Logs</button>
+    </nav>
+
+    <main>
+      <section id="overview" class="view active">
+        <div class="metrics-grid" id="metricTiles"></div>
+        <div class="split">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>PnL By Symbol</h2>
+              <button id="refreshOverviewBtn">Refresh</button>
+            </div>
+            <canvas id="pnlChart" height="260"></canvas>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Strategy Edge</h2>
+            </div>
+            <div id="strategyTable"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="symbols" class="view">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Symbol Runtime</h2>
+            <button id="saveSymbolsBtn" class="success">Save</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Run</th>
+                  <th>Symbol</th>
+                  <th>Status</th>
+                  <th>Duration</th>
+                  <th>Granularity</th>
+                  <th>Candles</th>
+                  <th>Stake</th>
+                  <th>Min EV</th>
+                  <th>Trades</th>
+                  <th>Threshold</th>
+                </tr>
+              </thead>
+              <tbody id="symbolRows"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="trades" class="view">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Recent Trades</h2>
+            <div class="inline-controls">
+              <select id="tradeSymbol"></select>
+              <button id="loadTradesBtn">Load</button>
+            </div>
+          </div>
+          <div id="tradesTable"></div>
+        </section>
+      </section>
+
+      <section id="predictions" class="view">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Prediction Attempts</h2>
+            <div class="inline-controls">
+              <select id="predictionSymbol"></select>
+              <button id="loadPredictionsBtn">Load</button>
+            </div>
+          </div>
+          <div id="predictionsTable"></div>
+        </section>
+      </section>
+
+      <section id="query" class="view">
+        <section class="panel query-panel">
+          <div class="panel-head">
+            <h2>SQLite Query</h2>
+            <button id="runQueryBtn">Run</button>
+          </div>
+          <textarea id="sqlQuery" spellcheck="false">select symbol, count(*) as trades, round(sum(pnl), 2) as pnl, round(avg(case when outcome = 1 then 1.0 else 0.0 end) * 100, 2) as win_rate from trades group by symbol order by pnl desc</textarea>
+          <div id="queryTable"></div>
+        </section>
+      </section>
+
+      <section id="logs" class="view">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Logs</h2>
+            <button id="loadLogsBtn">Load</button>
+          </div>
+          <pre id="logOutput"></pre>
+        </section>
+      </section>
+    </main>
+
+    <div id="toast" role="status"></div>
+    <script src="app.js"></script>
+  </body>
+</html>
