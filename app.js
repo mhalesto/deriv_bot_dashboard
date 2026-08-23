@@ -50,6 +50,7 @@ const state = {
   predictions: [],
   predictionSelected: null,
   predictionPaused: false,
+  learnStrategyFilter: "",
 
   queryResult: null,
   logLines: [],
@@ -315,7 +316,7 @@ function readConnectionFrom(source) {
 }
 
 /* ---------------- routing ---------------- */
-const VIEWS = ["overview", "symbols", "trades", "predictions", "query", "logs", "settings"];
+const VIEWS = ["overview", "symbols", "trades", "predictions", "learning", "query", "logs", "settings"];
 
 function switchView(view, { push = true } = {}) {
   if (!VIEWS.includes(view)) view = "overview";
@@ -334,6 +335,7 @@ function switchView(view, { push = true } = {}) {
   if (view === "trades" && !state.trades.length && state.connected) loadTrades();
   if (view === "predictions" && !state.predictions.length && state.connected) loadPredictions();
   if (view === "logs" && !state.logLines.length && state.connected) loadLogs();
+  if (view === "learning") renderLearning();
 }
 
 /* ---------------- status pills ---------------- */
@@ -421,6 +423,7 @@ async function refreshStatus() {
   renderSymbols();
   renderSymbolSelects();
   renderControlsDrawer(runtime, proc);
+  renderLearning();
   setRefreshIndicator();
 
   await refreshPnlRange();
@@ -1789,6 +1792,164 @@ function renderLogs() {
 /* =============================================================
    BOT CONTROL
    ============================================================= */
+/* =============================================================
+   LEARNING
+   ============================================================= */
+function learningData() {
+  return (state.status && state.status.learning) || {};
+}
+
+function cellLabel(row) {
+  return [row.symbol, row.regime, row.bucket].filter(Boolean).join(" \u00b7 ");
+}
+
+function winRatePct(row) {
+  // Rows come either from the in-memory book (mean 0-1) or the DB (win_rate 0-100).
+  if (Number.isFinite(Number(row.win_rate))) return Number(row.win_rate);
+  if (Number.isFinite(Number(row.mean))) return Number(row.mean) * 100;
+  return NaN;
+}
+
+function renderLearningKpis(learning) {
+  const el = $("learningKpis");
+  if (!el) return;
+  const settled = Number(learning.settled_observations || learning.total_settled_signals || 0);
+  const pending = Number(learning.pending_signals || 0);
+  const totalSettled = Number(learning.total_settled_signals || 0);
+  const totalWins = Number(learning.total_settled_wins || 0);
+  const overallWr = totalSettled > 0 ? (totalWins / totalSettled) * 100 : NaN;
+  const funnel = learning.funnel_totals || {};
+  const evaluated = Number(funnel.evaluated || 0);
+  const tradeable = Number(funnel.tradeable || 0);
+  const conv = evaluated > 0 ? (tradeable / evaluated) * 100 : NaN;
+  const strategies = (learning.strategies || []).length;
+  const enabled = learning.enabled !== false;
+  el.innerHTML = [
+    kpiTile({ label: "Learning", value: enabled ? "Active" : "Off", kind: enabled ? "good" : "warn",
+      sub: enabled ? "settling signals every candle" : "shadow learning disabled", glow: enabled }),
+    kpiTile({ label: "Settled observations", value: fmtInt(Math.round(settled)),
+      sub: "labelled outcomes learned from" }),
+    kpiTile({ label: "Awaiting settlement", value: fmtInt(pending),
+      sub: "signals maturing now" }),
+    kpiTile({ label: "Shadow win rate", value: Number.isFinite(overallWr) ? fmtPct(overallWr, 1) : "--",
+      sub: totalSettled ? `${fmtInt(totalWins)}/${fmtInt(totalSettled)} correct` : "collecting",
+      kind: Number.isFinite(overallWr) ? (overallWr >= 54 ? "good" : overallWr >= 50 ? "" : "bad") : "" }),
+    kpiTile({ label: "Signal \u2192 trade", value: Number.isFinite(conv) ? fmtPct(conv, 1) : "--",
+      sub: `${fmtInt(strategies)} strateg${strategies === 1 ? "y" : "ies"} tracked` }),
+  ].join("");
+}
+
+const FUNNEL_STAGES = [
+  { key: "evaluated", label: "Evaluated", icon: "search" },
+  { key: "signals", label: "Signals fired", icon: "bolt" },
+  { key: "filter_passed", label: "Passed filter", icon: "filter_alt" },
+  { key: "tradeable", label: "Edge-proven", icon: "verified" },
+  { key: "traded_settled", label: "Traded", icon: "swap_horiz" },
+];
+
+function renderLearningFunnel(learning) {
+  const el = $("learningFunnel");
+  if (!el) return;
+  const totals = learning.funnel_totals || {};
+  const base = Number(totals.evaluated || 0) || Math.max(1, ...FUNNEL_STAGES.map((s) => Number(totals[s.key] || 0)), 1);
+  if (!FUNNEL_STAGES.some((s) => Number(totals[s.key] || 0) > 0)) {
+    el.innerHTML = `<p class="empty">No signals evaluated yet. The funnel fills once the bot is running and candles arrive.</p>`;
+    return;
+  }
+  el.innerHTML = `<div class="funnel">${FUNNEL_STAGES.map((stage) => {
+    const count = Number(totals[stage.key] || 0);
+    const pct = base > 0 ? Math.min(100, (count / base) * 100) : 0;
+    return `
+      <div class="funnel__row">
+        <div class="funnel__label"><span class="ms">${stage.icon}</span>${stage.label}</div>
+        <div class="funnel__bar"><div class="funnel__fill" style="width:${pct}%"></div></div>
+        <div class="funnel__count">${fmtInt(Math.round(count))}<span class="funnel__pct">${fmtPct(pct, 0)}</span></div>
+      </div>`;
+  }).join("")}</div>`;
+}
+
+function cellRowsHtml(rows, { emptyMsg }) {
+  if (!rows || !rows.length) return `<p class="empty">${emptyMsg}</p>`;
+  return `<div class="celllist">${rows.map((row) => {
+    const wr = winRatePct(row);
+    const lcb = Number.isFinite(Number(row.lower_bound)) ? Number(row.lower_bound) * 100 : null;
+    const obs = Number(row.observations || 0);
+    const kind = Number.isFinite(wr) ? (wr >= 54 ? "pos" : wr >= 50 ? "" : "neg") : "";
+    return `
+      <div class="cell">
+        <div class="cell__head">
+          <span class="cell__strategy">${escapeHtml(row.strategy || "?")}</span>
+          <span class="cell__wr ${kind}">${Number.isFinite(wr) ? fmtPct(wr, 1) : "--"}</span>
+        </div>
+        <div class="cell__label">${escapeHtml(cellLabel(row)) || "&mdash;"}</div>
+        <div class="cell__meter"><div class="cell__meterfill cell__meterfill--${kind || "flat"}" style="width:${Number.isFinite(wr) ? Math.min(100, Math.max(0, wr)) : 0}%"></div></div>
+        <div class="cell__meta">
+          <span>${fmtInt(Math.round(obs))} obs</span>
+          ${lcb !== null ? `<span title="pessimistic lower bound">LCB ${fmtPct(lcb, 0)}</span>` : ""}
+        </div>
+      </div>`;
+  }).join("")}</div>`;
+}
+
+function renderLearningBook(learning) {
+  const filter = state.learnStrategyFilter || "";
+  const rows = (learning.settled_by_cell || []).filter((r) => !filter || r.strategy === filter);
+  const el = $("learningBook");
+  const hint = $("learnBookHint");
+  if (hint) hint.textContent = rows.length ? `${rows.length} setups with 5+ settled signals` : "";
+  if (!el) return;
+  if (!rows.length) {
+    el.innerHTML = `<p class="empty" style="padding:16px">No settled setups yet. Each signal settles ${"" }after its contract horizon; give it a little time.</p>`;
+    return;
+  }
+  const body = rows.map((r) => {
+    const wr = winRatePct(r);
+    const kind = Number.isFinite(wr) ? (wr >= 54 ? "pos" : wr >= 50 ? "" : "neg") : "";
+    return `
+      <tr>
+        <td>${escapeHtml(r.strategy || "?")}</td>
+        <td>${escapeHtml(r.symbol || "")}</td>
+        <td>${escapeHtml(r.regime || "")}</td>
+        <td>${escapeHtml(r.bucket || "")}</td>
+        <td class="num">${fmtInt(r.observations)}</td>
+        <td class="num ${kind}">${Number.isFinite(wr) ? fmtPct(wr, 1) : "--"}</td>
+        <td class="num">${fmtNum(r.avg_filter_score, 2)}</td>
+        <td class="num">${fmtInt(r.traded || 0)}</td>
+      </tr>`;
+  }).join("");
+  el.innerHTML = `
+    <div class="learn-tablewrap">
+      <table>
+        <thead><tr>
+          <th>Strategy</th><th>Symbol</th><th>Regime</th><th>Strength</th>
+          <th class="num">Obs</th><th class="num">Win rate</th><th class="num">Filter</th><th class="num">Traded</th>
+        </tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>`;
+}
+
+function renderLearningStrategyFilter(learning) {
+  const sel = $("learnStrategyFilter");
+  if (!sel) return;
+  const names = Array.from(new Set((learning.settled_by_cell || []).map((r) => r.strategy).filter(Boolean))).sort();
+  const current = state.learnStrategyFilter || "";
+  sel.innerHTML = `<option value="">All strategies</option>` +
+    names.map((n) => `<option value="${escapeHtml(n)}"${n === current ? " selected" : ""}>${escapeHtml(n)}</option>`).join("");
+}
+
+function renderLearning() {
+  const learning = learningData();
+  renderLearningKpis(learning);
+  renderLearningFunnel(learning);
+  renderLearningStrategyFilter(learning);
+  $("learningBest").innerHTML = cellRowsHtml(learning.best_cells, {
+    emptyMsg: "No proven setups yet. The bot needs enough settled signals in a cell before it trades it." });
+  $("learningWorst").innerHTML = cellRowsHtml(learning.worst_cells, {
+    emptyMsg: "Nothing flagged as weak yet." });
+  renderLearningBook(learning);
+}
+
 function renderControlsDrawer(runtime, proc) {
   const running = Boolean(proc.running);
   $("drawerStatus").innerHTML = `<i class="dot ${running ? "dot--good dot--pulse" : ""}"></i>${running ? "Running" : "Stopped"}`;
@@ -1930,6 +2091,7 @@ const COMMANDS = [
   { id: "symbols", label: "Go to Symbols", icon: "monitoring", hint: "view", run: () => switchView("symbols") },
   { id: "trades", label: "Go to Trades", icon: "swap_horiz", hint: "view", run: () => switchView("trades") },
   { id: "predictions", label: "Go to Predictions", icon: "psychology", hint: "view", run: () => switchView("predictions") },
+  { id: "learning", label: "Go to Learning", icon: "school", hint: "view", run: () => switchView("learning") },
   { id: "query", label: "Go to Query", icon: "terminal", hint: "view", run: () => switchView("query") },
   { id: "logs", label: "Go to Logs", icon: "list_alt", hint: "view", run: () => switchView("logs") },
   { id: "settings", label: "Go to Settings", icon: "settings", hint: "view", run: () => switchView("settings") },
@@ -2083,6 +2245,13 @@ function bindOverview() {
   $("modelValidationSummary").addEventListener("click", (e) => {
     const row = e.target.closest("[data-model-symbol]");
     if (row) openSymbolDetail(row.dataset.modelSymbol);
+  });
+  const reloadLearningBtn = $("reloadLearningBtn");
+  if (reloadLearningBtn) reloadLearningBtn.addEventListener("click", () => tick());
+  const learnFilter = $("learnStrategyFilter");
+  if (learnFilter) learnFilter.addEventListener("change", (e) => {
+    state.learnStrategyFilter = e.target.value;
+    renderLearning();
   });
   window.addEventListener("resize", () => {
     clearTimeout(window.__equityResize);

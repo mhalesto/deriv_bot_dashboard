@@ -32,6 +32,9 @@
         <a class="navlink" data-view="predictions" href="#predictions">
           <span class="ms">psychology</span><span class="navlink__text">Predictions</span>
         </a>
+        <a class="navlink" data-view="learning" href="#learning">
+          <span class="ms">school</span><span class="navlink__text">Learning</span>
+        </a>
         <a class="navlink" data-view="query" href="#query">
           <span class="ms">terminal</span><span class="navlink__text">Query</span>
         </a>
@@ -326,6 +329,58 @@
             </section>
           </div>
         </div>
+      </section>
+
+      <!-- ===================== LEARNING ===================== -->
+      <section class="view" id="view-learning">
+        <div class="pagehead pagehead--tight">
+          <div>
+            <h1 class="pagehead__title">Learning</h1>
+            <p class="pagehead__sub">What the bot has learned from every signal it has seen &mdash; traded or not.</p>
+          </div>
+          <div class="pagehead__tools toolbar">
+            <label class="selectbox">
+              <span class="selectbox__label">Strategy</span>
+              <select id="learnStrategyFilter"><option value="">All</option></select>
+            </label>
+            <button class="btn btn--surface" id="reloadLearningBtn" type="button"><span class="ms">refresh</span>Refresh</button>
+          </div>
+        </div>
+
+        <div class="kpi-grid kpi-grid--5" id="learningKpis"></div>
+
+        <section class="panel panel--glow">
+          <div class="panel__head">
+            <h2 class="panel__title"><span class="ms panel__icon">filter_alt</span>Signal Funnel</h2>
+            <span class="panel__hint" id="learnFunnelHint">evaluated &rarr; filtered &rarr; edge-proven &rarr; traded</span>
+          </div>
+          <div class="panel__body" id="learningFunnel"></div>
+        </section>
+
+        <div class="learn-grid">
+          <section class="panel">
+            <div class="panel__head">
+              <h2 class="panel__title"><span class="ms panel__icon">trending_up</span>Best Setups</h2>
+              <span class="panel__hint">by pessimistic (lower-bound) win rate</span>
+            </div>
+            <div class="panel__body" id="learningBest"></div>
+          </section>
+          <section class="panel">
+            <div class="panel__head">
+              <h2 class="panel__title"><span class="ms panel__icon">trending_down</span>Worst Setups</h2>
+              <span class="panel__hint">avoided by the edge gate</span>
+            </div>
+            <div class="panel__body" id="learningWorst"></div>
+          </section>
+        </div>
+
+        <section class="panel">
+          <div class="panel__head">
+            <h2 class="panel__title"><span class="ms panel__icon">table_rows</span>Win-Rate Book</h2>
+            <span class="panel__hint" id="learnBookHint"></span>
+          </div>
+          <div class="panel__body panel__body--flush" id="learningBook"></div>
+        </section>
       </section>
 
       <!-- ===================== QUERY ===================== -->
