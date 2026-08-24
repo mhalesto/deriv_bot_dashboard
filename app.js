@@ -893,13 +893,30 @@ const SYMBOL_FIELDS = [
 
 function symbolStatus(rt) {
   if (!rt) return { text: "No runtime data", kind: "muted" };
-  if (rt.model_training) return { text: "Training model", kind: "info" };
-  if (rt.model_loaded) return { text: "Model accepted", kind: "good" };
+  const ai = state.status?.evidence?.confirmation || {};
+  const aiCollecting = Boolean(
+    ai.enabled && ai.collect_all_candidates && state.status?.process?.running
+  );
+  const aiName = [ai.provider, ai.model_id].filter(Boolean).join(" · ") || "AI";
+  const aiDetail = `${aiName} shadow active · ${fmtInt(ai.events || 0)} opinions · uncalibrated, no execution vote`;
+  if (rt.model_training) return {
+    text: aiCollecting ? "Training + AI shadow" : "Training model",
+    kind: "info", detail: aiCollecting ? aiDetail : undefined,
+  };
+  if (rt.model_loaded) return {
+    text: aiCollecting ? "ML + AI shadow" : "Model accepted",
+    kind: "good", detail: aiCollecting ? aiDetail : undefined,
+  };
   const report = rt.last_training_report || {};
   if (report.accepted === false) {
     const reason = modelFailureReasons(report, modelGateLimits(state.status?.runtime || {}))[0] || "candidate did not pass validation";
+    if (aiCollecting) return {
+      text: "Rules + AI shadow", kind: "info",
+      detail: `ML gated: ${reason} · ${aiDetail}`,
+    };
     return { text: "ML gated", kind: "warn", detail: `Rules active · ${reason}` };
   }
+  if (aiCollecting) return { text: "Rules + AI shadow", kind: "info", detail: aiDetail };
   return { text: "Rules only", kind: "muted" };
 }
 
