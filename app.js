@@ -2174,7 +2174,16 @@ function renderPolicyRegistry(evidence) {
 function renderCanaryLimits(evidence) {
   const el = $("canaryLimits");
   if (!el) return;
-  const limits = evidence.canary_limits || {};
+  const configured = evidence.canary_limits || {};
+  const runtime = state.status?.runtime || {};
+  const evaluation = evidence.execution?.phase === "exact_evaluation";
+  const limits = evaluation ? {
+    ...configured,
+    fixed_stake: runtime.fixed_canary_stake ?? configured.fixed_stake,
+    max_open_contracts: runtime.max_open_trades_total ?? configured.max_open_contracts,
+    max_daily_trades: runtime.max_trades_per_day ?? configured.max_daily_trades,
+    max_daily_drawdown: runtime.daily_loss_limit ?? configured.max_daily_drawdown,
+  } : configured;
   el.innerHTML = `<div class="limit-grid">
     <div><span>Fixed stake</span><strong>${fmtMoney(limits.fixed_stake || 0)}</strong></div>
     <div><span>Open contracts</span><strong>${fmtInt(limits.max_open_contracts || 0)}</strong></div>
@@ -2183,7 +2192,7 @@ function renderCanaryLimits(evidence) {
     <div><span>Quote latency p95</span><strong>${fmtNum(limits.max_quote_latency_seconds || 0, 1)}s</strong></div>
     <div><span>Max quote rejection</span><strong>${fmtPct(Number(limits.max_rejection_rate || 0) * 100, 0)}</strong></div>
   </div>
-  <p class="evidence-footnote">Confidence sizing and funded Thompson exploration are disabled. A gate, version, calibration, return-bound, drawdown, latency, or rejection failure automatically demotes the champion.</p>`;
+  <p class="evidence-footnote">${evaluation ? "Active demo-evaluation limits are shown. Valid quotes are sampled for exact outcomes; symbol, strategy, duration, and AI attribution remain recorded." : "Confidence sizing and funded Thompson exploration are disabled. A gate, version, calibration, return-bound, drawdown, latency, or rejection failure automatically demotes the champion."}</p>`;
 }
 
 function renderAiStatus(evidence) {
