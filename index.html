@@ -427,6 +427,15 @@
           <div class="panel__body panel__body--flush" id="policyRegistry"></div>
         </section>
 
+        <section class="panel evidence-section panel--glow">
+          <div class="panel__head">
+            <h2 class="panel__title"><span class="ms panel__icon">target</span>Evidence Coverage</h2>
+            <span class="panel__hint" id="samplingHint">how close each scope is to being decidable</span>
+          </div>
+          <div class="panel__body" id="samplingSummary"></div>
+          <div class="panel__body panel__body--flush" id="samplingCells"></div>
+        </section>
+
         <div class="evidence-grid evidence-section">
           <section class="panel">
             <div class="panel__head">
@@ -438,7 +447,7 @@
           <section class="panel panel--ai">
             <div class="panel__head">
               <h2 class="panel__title"><span class="ms panel__icon">neurology</span>AI Confirmation Runtime</h2>
-              <span class="panel__hint">veto only; never sizes or creates a trade</span>
+              <span class="panel__hint" id="aiAuthorityHint">veto only; never sizes or creates a trade</span>
             </div>
             <div class="panel__body" id="aiConfirmationStatus"></div>
           </section>

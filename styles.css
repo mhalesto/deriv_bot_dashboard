@@ -1954,3 +1954,69 @@ body.drawer-overlay .toasts { right: calc(var(--drawer-w-lg) + 24px); }
   .compact-list__row { grid-template-columns: 1fr auto; }
   .compact-list__metrics { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; }
 }
+
+/* ===================== EVIDENCE COVERAGE & AI AUTHORITY ===================== */
+/* A wider meter than the 4px KPI variant: coverage is the primary reading in
+   these rows, not a decoration under a number. */
+.meter--wide { height: 6px; min-width: 90px; }
+.meter__fill--accent { background: var(--primary); }
+
+.samplingrow--complete .mono { color: var(--secondary); }
+.samplingrow--queued { opacity: 0.62; }
+.samplingrow--sampling { background: rgba(194, 193, 255, 0.045); }
+.samplingrow td { vertical-align: middle; }
+
+/* Authority state is the panel's headline, so the hero tints to match it
+   instead of always reading as neutral brand colour. */
+.ai-runtime__hero--shadow { background: linear-gradient(135deg, rgba(255, 176, 0, 0.14), rgba(255, 176, 0, 0.03)); }
+.ai-runtime__hero--shadow > .ms { color: var(--status-warning); }
+.ai-runtime__hero--veto { background: linear-gradient(135deg, rgba(68, 224, 146, 0.14), rgba(68, 224, 146, 0.03)); }
+.ai-runtime__hero--veto > .ms { color: var(--secondary); }
+.ai-runtime__hero--off { background: var(--surface-container-low); }
+.ai-runtime__hero--off > .ms { color: var(--text-secondary); }
+.ai-runtime__hero--pinned > .ms { color: var(--status-warning); }
+
+.ai-authority {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.ai-verdict {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 11px;
+  border-radius: var(--r-lg);
+  font-size: 11px;
+  line-height: 17px;
+}
+.ai-verdict > .ms { font-size: 16px; flex: none; }
+.ai-verdict--good { background: rgba(68, 224, 146, 0.09); color: var(--secondary); }
+.ai-verdict--bad { background: rgba(255, 180, 171, 0.09); color: var(--error); }
+
+.ai-readiness {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 11px;
+  border-radius: var(--r-lg);
+  background: var(--surface-container-low);
+}
+.ai-readiness__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.ai-readiness__head strong { color: var(--text-primary); font-size: 12px; letter-spacing: 0; }
+.ai-readiness small { color: var(--text-secondary); font-size: 10px; line-height: 15px; }
+
+@media (max-width: 900px) {
+  .ai-readiness__head { flex-direction: column; gap: 2px; }
+}

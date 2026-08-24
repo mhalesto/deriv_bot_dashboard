@@ -2171,6 +2171,153 @@ function renderPolicyRegistry(evidence) {
     }).join("")}</tbody></table></div>`;
 }
 
+function formatHours(hours) {
+  const value = Number(hours);
+  if (!Number.isFinite(value) || value <= 0) return "--";
+  if (value < 1) return `${Math.round(value * 60)} min`;
+  if (value < 48) return `${fmtNum(value, 1)} h`;
+  return `${fmtNum(value / 24, 1)} d`;
+}
+
+function renderSamplingSummary(evidence) {
+  const el = $("samplingSummary");
+  if (!el) return;
+  const sampling = evidence.evidence_sampling || {};
+  const progress = sampling.progress || {};
+  const economics = evidence.demo_evaluation_economics || {};
+  const hint = $("samplingHint");
+  const total = Number(progress.cells_total || 0);
+  const complete = Number(progress.cells_complete || 0);
+  const target = Number(progress.target_per_cell || 0);
+  const active = progress.cells_active || [];
+  // Scopes that never produced a candidate cannot be filled, so the headline
+  // counts what is actually reachable rather than flattering the denominator.
+  const live = Number(progress.cells_live || 0);
+  const stalledCount = Number(progress.cells_stalled || 0);
+
+  if (hint) {
+    hint.textContent = sampling.enabled
+      ? `${fmtInt(active.length)} of ${fmtInt(total)} scopes sampling · target ${fmtInt(target)} exact outcomes each`
+      : "stratified sampling is disabled; every eligible candidate is traded";
+  }
+
+  if (!sampling.enabled) {
+    el.innerHTML = `
+      <div class="evidence-gate evidence-gate--warn" style="margin:0">
+        <span class="ms evidence-gate__icon">scatter_plot</span>
+        <div>
+          <strong>Sampling is spread across every scope</strong>
+          <p>Without concentration the daily budget is divided across all ${fmtInt(total) || "many"} scopes, so none reaches the ${fmtInt(target) || 80} exact outcomes a calibration needs. Set ENABLE_STRATIFIED_SAMPLING=true to concentrate it.</p>
+        </div>
+        <span class="chip chip--warn">unfocused</span>
+      </div>`;
+    return;
+  }
+
+  // Cells only settle as fast as their horizon allows, so the nearest
+  // decidable scope - not the daily trade cap - is the real ETA.
+  const cells = sampling.cells || [];
+  const sampling_rows = cells.filter((row) => row.state === "sampling");
+  const nextUp = sampling_rows.length
+    ? sampling_rows.reduce((best, row) => (row.hours_to_target < best.hours_to_target ? row : best))
+    : null;
+  const settled = Number(progress.settled_total || 0);
+  const required = Number(progress.settled_required || 0);
+  const blockComplete = Boolean(progress.block_complete);
+  const evReturn = Number(economics.neutral_prior_return);
+  const stake = Number(economics.fixed_stake || 0);
+
+  el.innerHTML = `
+    <div class="kpi-grid kpi-grid--4" style="margin-bottom:14px">
+      ${kpiTile({
+        label: "Scopes decidable",
+        value: `${fmtInt(complete)} / ${fmtInt(live || total)}`,
+        sub: stalledCount
+          ? `${fmtInt(target)} each · ${fmtInt(stalledCount)} with no signal source`
+          : `${fmtInt(target)} exact outcomes each`,
+        kind: blockComplete ? "pos" : complete > 0 ? "accent" : "",
+        meter: { kind: blockComplete ? "good" : "accent", pct: total ? Math.min(100, (complete / total) * 100) : 0 },
+      })}
+      ${kpiTile({
+        label: "Exact outcomes banked",
+        value: fmtInt(settled),
+        sub: `of ${fmtInt(required)} for the full block`,
+        meter: { kind: "accent", pct: required ? Math.min(100, (settled / required) * 100) : 0 },
+      })}
+      ${kpiTile({
+        label: "Next scope decidable",
+        value: nextUp ? formatHours(nextUp.hours_to_target) : blockComplete ? "done" : "--",
+        sub: nextUp ? `${nextUp.symbol} · ${nextUp.strategy}` : "no scope is sampling",
+        kind: blockComplete ? "pos" : "",
+      })}
+      ${kpiTile({
+        label: "Cost per sample",
+        value: Number.isFinite(evReturn) ? fmtPct(evReturn * 100, 1) : "--",
+        sub: Number.isFinite(evReturn) && stake
+          ? `${fmtSignedMoney(evReturn * stake)} expected per $${fmtNum(stake, 2)} contract`
+          : "expected return at the neutral prior",
+        kind: Number.isFinite(evReturn) && evReturn < 0 ? "warn" : "",
+      })}
+    </div>
+    ${blockComplete ? `
+      <div class="evidence-gate evidence-gate--good" style="margin:0">
+        <span class="ms evidence-gate__icon">verified</span>
+        <div>
+          <strong>Evaluation block is complete</strong>
+          <p>Every declared scope holds ${fmtInt(target)} exact outcomes. Sampling has stopped on its own. Run the calibration and promotion tools below to decide whether anything here has an edge.</p>
+        </div>
+        <span class="chip chip--good">stopped</span>
+      </div>` : `
+      <p class="evidence-footnote" style="margin:0">
+        A locked evaluation buys exact outcomes at the neutral ${fmtPct(Number(economics.neutral_prior || 0.5) * 100, 0)} prior, below the ${fmtPct(Number(economics.break_even || 0) * 100, 2)} break-even implied by the ${fmtPct(Number(economics.payout_rate || 0) * 100, 0)} payout. That gap is the price of an unbiased sample, not a prediction — which is why this phase must end at a target rather than run indefinitely.
+      </p>`}`;
+}
+
+function renderSamplingCells(evidence) {
+  const el = $("samplingCells");
+  if (!el) return;
+  const sampling = evidence.evidence_sampling || {};
+  const rows = sampling.cells || [];
+  const stalled = Number((sampling.progress || {}).cells_stalled || 0);
+  if (!rows.length) {
+    el.innerHTML = `<p class="empty" style="padding:16px">No scope has been declared yet. Register an evaluation policy to open one.</p>`;
+    return;
+  }
+  const stateMeta = {
+    sampling: { chip: "info", icon: "play_circle", label: "sampling" },
+    complete: { chip: "good", icon: "check_circle", label: "decidable" },
+    queued: { chip: "muted", icon: "schedule", label: "queued" },
+    // A declared scope whose signal source never fires - an ML scope with no
+    // accepted model, a rule that never triggers on that market. It is skipped
+    // rather than waited on, and named so the cause is obvious.
+    stalled: { chip: "warn", icon: "signal_disconnected", label: "no signal" },
+  };
+  el.innerHTML = `<div class="learn-tablewrap"><table class="evidence-table">
+    <thead><tr>
+      <th>Scope</th><th>Horizon</th><th>Strategy</th>
+      <th>Exact outcomes</th><th>Coverage</th><th>Open</th><th>Time to target</th><th>State</th>
+    </tr></thead>
+    <tbody>${rows.map((row) => {
+      const meta = stateMeta[row.state] || stateMeta.queued;
+      const pct = Math.min(100, Number(row.progress_pct || 0));
+      return `<tr class="samplingrow samplingrow--${escapeHtml(row.state)}">
+        <td class="mono">${escapeHtml(row.symbol || "")}</td>
+        <td class="mono">${fmtInt(Number(row.duration_seconds || 0) / 60)}m</td>
+        <td>${escapeHtml(row.strategy || "")}</td>
+        <td class="mono">${fmtInt(row.settled || 0)} / ${fmtInt(row.target || 0)}</td>
+        <td>
+          <span class="meter meter--wide"><span class="meter__fill meter__fill--${row.state === "complete" ? "good" : "accent"}" style="width:${pct}%"></span></span>
+        </td>
+        <td class="mono">${fmtInt(row.open || 0)}</td>
+        <td class="mono">${row.state === "complete" ? "--" : formatHours(row.hours_to_target)}</td>
+        <td><span class="chip chip--${meta.chip}"><span class="ms" style="font-size:14px">${meta.icon}</span>${meta.label}</span></td>
+      </tr>`;
+    }).join("")}</tbody></table></div>
+  <div class="evidence-footnote">Scopes are filled a few at a time and shortest-horizon first, because at one open contract per scope the horizon — not the daily trade cap — sets how fast exact outcomes arrive. Skipped candidates are still recorded for shadow settlement, so concentrating execution costs no learning.${
+    stalled ? ` <strong>${fmtInt(stalled)} scope${stalled === 1 ? " has" : "s have"} never produced a candidate</strong> — usually an ML scope with no accepted model, or a rule that never triggers on that market. They are excluded from the stopping rule instead of holding the block open.` : ""
+  }</div>`;
+}
+
 function renderCanaryLimits(evidence) {
   const el = $("canaryLimits");
   if (!el) return;
@@ -2195,17 +2342,99 @@ function renderCanaryLimits(evidence) {
   <p class="evidence-footnote">${evaluation ? "Active demo-evaluation limits are shown. Valid quotes are sampled for exact outcomes; symbol, strategy, duration, and AI attribution remain recorded." : "Confidence sizing and funded Thompson exploration are disabled. A gate, version, calibration, return-bound, drawdown, latency, or rejection failure automatically demotes the champion."}</p>`;
 }
 
+function aiAuthority(ai, sampling) {
+  // Authority is the only thing an operator actually needs from this panel:
+  // what can this model do to a trade right now?
+  if (!ai.enabled) {
+    return {
+      state: "off", chip: "muted", icon: "cloud_off",
+      title: "Sidecar is off",
+      detail: "No model is consulted. The primary evidence gates are the only authority.",
+    };
+  }
+  if (!ai.pinned_calibration_evidence_id) {
+    return {
+      state: "shadow", chip: "warn", icon: "visibility",
+      title: "Shadow only — no vote",
+      detail: "Opinions are recorded as evidence. The model cannot create a trade, raise a stake, rescue a failed gate, or veto one until a forward calibration is approved and pinned.",
+    };
+  }
+  if (!Number(ai.calibrated_events || 0)) {
+    return {
+      state: "pinned", chip: "warn", icon: "pending",
+      title: "Calibration pinned, no calibrated opinions yet",
+      detail: "A manifest is pinned but no live opinion has been produced under it.",
+    };
+  }
+  return {
+    state: "veto", chip: "good", icon: "gavel",
+    title: "Veto armed",
+    detail: "Calibrated opinions may block a trade. They can never create one, raise a stake, or override a failed primary gate.",
+  };
+}
+
+function bestCalibrationScope(sampling) {
+  // Calibration needs its samples inside ONE fixed scope; a total across
+  // scopes cannot calibrate anything.
+  const rows = (sampling || {}).cells || [];
+  if (!rows.length) return null;
+  return rows.reduce((best, row) => (Number(row.settled || 0) > Number(best.settled || 0) ? row : best));
+}
+
 function renderAiStatus(evidence) {
   const el = $("aiConfirmationStatus");
   if (!el) return;
   const ai = evidence.confirmation || {};
   const adapters = ai.installed_adapters || {};
+  const sampling = evidence.evidence_sampling || {};
+  const authority = aiAuthority(ai, sampling);
+  const hint = $("aiAuthorityHint");
+  if (hint) hint.textContent = authority.title.toLowerCase();
+
+  const scope = bestCalibrationScope(sampling);
+  const needed = Number((sampling.progress || {}).target_per_cell || 80);
+  const have = scope ? Number(scope.settled || 0) : 0;
+  const readyPct = needed ? Math.min(100, (have / needed) * 100) : 0;
+
+  // A benchmark that lost to the base rate must say so here, not only in the
+  // runs table further down the page.
+  // Live skill outranks the offline benchmark: it is scored against settled
+  // contracts rather than candle-close proxies.
+  const skill = (ai.live_skill || []).find((row) => Number(row.settled_opinions || 0) >= 20);
+  const runs = evidence.benchmark_runs || [];
+  const judged = runs.filter((row) => row.beats_base_rate !== null && row.beats_base_rate !== undefined);
+  const edge = skill ? Number(skill.agreement_edge) : NaN;
+  const verdict = Number.isFinite(edge)
+    ? (edge > 0
+        ? { kind: "good", icon: "trending_up", text: `On ${fmtInt(skill.settled_opinions)} settled contracts, trades this model agreed with won ${fmtPct(edge * 100, 1)} more often than ones it did not. Still not a promotion: agreement is not calibration.` }
+        : { kind: "bad", icon: "trending_down", text: `On ${fmtInt(skill.settled_opinions)} settled contracts, trades this model agreed with won ${fmtPct(Math.abs(edge) * 100, 1)} LESS often than ones it did not (${fmtPct(Number(skill.agreed_win_rate) * 100, 1)} vs ${fmtPct(Number(skill.disagreed_win_rate) * 100, 1)}). Filtering on its agreement would not have helped.` })
+    : !judged.length
+    ? null
+    : judged.some((row) => row.beats_base_rate === true)
+      ? { kind: "good", icon: "trending_up", text: "A local benchmark beat the base-rate forecast. It still cannot promote: approximate labels are diagnostics only." }
+      : { kind: "bad", icon: "trending_down", text: "No local benchmark has beaten a constant base-rate forecast. On the evidence so far this model adds no skill." };
+
   el.innerHTML = `
     <div class="ai-runtime">
-      <div class="ai-runtime__hero">
-        <span class="ms">${ai.enabled ? "online_prediction" : "cloud_off"}</span>
-        <div><strong>${ai.enabled ? "Shadow sidecar enabled" : "Sidecar not enabled"}</strong><small>${escapeHtml(ai.endpoint || "disabled")}</small></div>
-        <span class="chip chip--${ai.enabled ? "good" : "muted"}">${ai.enabled ? "collecting" : "safe off"}</span>
+      <div class="ai-runtime__hero ai-runtime__hero--${authority.state}">
+        <span class="ms">${authority.icon}</span>
+        <div><strong>${escapeHtml(authority.title)}</strong><small>${escapeHtml(ai.endpoint || "disabled")}</small></div>
+        <span class="chip chip--${authority.chip}">${escapeHtml(authority.state)}</span>
+      </div>
+      <p class="ai-authority">${escapeHtml(authority.detail)}</p>
+      ${verdict ? `
+        <div class="ai-verdict ai-verdict--${verdict.kind}">
+          <span class="ms">${verdict.icon}</span><span>${escapeHtml(verdict.text)}</span>
+        </div>` : ""}
+      <div class="ai-readiness">
+        <div class="ai-readiness__head">
+          <span>Calibration readiness${scope ? ` · ${escapeHtml(scope.symbol)} ${fmtInt(Number(scope.duration_seconds || 0) / 60)}m ${escapeHtml(scope.strategy)}` : ""}</span>
+          <strong class="mono">${fmtInt(have)} / ${fmtInt(needed)}</strong>
+        </div>
+        <span class="meter meter--wide"><span class="meter__fill meter__fill--${have >= needed ? "good" : "accent"}" style="width:${readyPct}%"></span></span>
+        <small>${have >= needed
+          ? "One scope now holds enough exact outcomes to attempt a forward calibration."
+          : `Needs ${fmtInt(Math.max(0, needed - have))} more exact outcomes in a single fixed scope before a calibration can even be attempted. Totals pooled across scopes do not count.`}</small>
       </div>
       <dl class="evidence-dl">
         <div><dt>Provider</dt><dd>${escapeHtml(ai.provider || "--")}</dd></div>
@@ -2252,8 +2481,8 @@ function renderAiBenchmarks(evidence) {
   el.innerHTML = `<div class="compact-list">${rows.map((row) => `
     <div class="compact-list__row">
       <div><strong>${escapeHtml(row.provider || "?")} · ${escapeHtml(row.model_id || "?")}</strong><small>${escapeHtml(row.artifact || "")} · ${fmtInt(row.non_overlapping_origins || 0)} origins · ${row.coverage == null ? "legacy coverage" : `${fmtPct(Number(row.coverage) * 100, 1)} coverage`}</small></div>
-      <div class="compact-list__metrics"><span>Return ${row.mean_return == null ? "--" : fmtPct(Number(row.mean_return) * 100, 2)}</span><span>LCB ${row.return_lower == null ? "--" : fmtPct(Number(row.return_lower) * 100, 2)}</span><span>Brier ${row.brier == null ? "--" : fmtNum(row.brier, 3)}</span><span>${row.latency_p95_ms == null ? "--" : `${fmtNum(row.latency_p95_ms, 0)} ms`}</span></div>
-      <span class="chip chip--warn">not promotable</span>
+      <div class="compact-list__metrics"><span>Return ${row.mean_return == null ? "--" : fmtPct(Number(row.mean_return) * 100, 2)}</span><span>LCB ${row.return_lower == null ? "--" : fmtPct(Number(row.return_lower) * 100, 2)}</span><span title="Lower is better; only meaningful against the base rate">Brier ${row.brier == null ? "--" : fmtNum(row.brier, 3)}</span><span title="Brier score of always forecasting the base rate">vs base ${row.base_rate_brier == null ? "--" : fmtNum(row.base_rate_brier, 3)}</span><span>${row.latency_p95_ms == null ? "--" : `${fmtNum(row.latency_p95_ms, 0)} ms`}</span></div>
+      <span class="chip chip--${row.beats_base_rate === true ? "good" : row.beats_base_rate === false ? "bad" : "warn"}">${row.beats_base_rate === true ? "beats base rate" : row.beats_base_rate === false ? "no skill" : "not promotable"}</span>
     </div>`).join("")}</div>`;
 }
 
@@ -2307,6 +2536,8 @@ function renderEvidence() {
   renderEvidenceLifecycle(evidence);
   renderEvidenceIntegrity(evidence);
   renderPolicyRegistry(evidence);
+  renderSamplingSummary(evidence);
+  renderSamplingCells(evidence);
   renderCanaryLimits(evidence);
   renderAiStatus(evidence);
   renderAiCatalog(evidence);
