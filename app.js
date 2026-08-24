@@ -2216,7 +2216,7 @@ function renderAiBenchmarks(evidence) {
   }
   el.innerHTML = `<div class="compact-list">${rows.map((row) => `
     <div class="compact-list__row">
-      <div><strong>${escapeHtml(row.provider || "?")} · ${escapeHtml(row.model_id || "?")}</strong><small>${escapeHtml(row.artifact || "")} · ${fmtInt(row.non_overlapping_origins || 0)} origins</small></div>
+      <div><strong>${escapeHtml(row.provider || "?")} · ${escapeHtml(row.model_id || "?")}</strong><small>${escapeHtml(row.artifact || "")} · ${fmtInt(row.non_overlapping_origins || 0)} origins · ${row.coverage == null ? "legacy coverage" : `${fmtPct(Number(row.coverage) * 100, 1)} coverage`}</small></div>
       <div class="compact-list__metrics"><span>Return ${row.mean_return == null ? "--" : fmtPct(Number(row.mean_return) * 100, 2)}</span><span>LCB ${row.return_lower == null ? "--" : fmtPct(Number(row.return_lower) * 100, 2)}</span><span>Brier ${row.brier == null ? "--" : fmtNum(row.brier, 3)}</span><span>${row.latency_p95_ms == null ? "--" : `${fmtNum(row.latency_p95_ms, 0)} ms`}</span></div>
       <span class="chip chip--warn">not promotable</span>
     </div>`).join("")}</div>`;
