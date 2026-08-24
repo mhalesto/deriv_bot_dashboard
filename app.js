@@ -645,6 +645,7 @@ function renderPnlBars() {
   merged.sort((a, b) => b.pnl - a.pnl || b.trades - a.trades);
   const maxAbs = Math.max(0.01, ...merged.map((m) => Math.abs(m.pnl)));
 
+  state.pnlVisibleRows = merged.length;
   $("pnlBars").innerHTML = merged.map((m) => {
     const t = tone(m.pnl);
     const pct = m.pnl === 0 ? 2 : Math.max(4, (Math.abs(m.pnl) / maxAbs) * 100);
@@ -661,6 +662,40 @@ function renderPnlBars() {
         </div>
       </div>`;
   }).join("");
+  syncOverviewCardHeights();
+}
+
+// Five rows is the visible budget; the rest scroll inside the card. The height
+// is measured rather than hard-coded because row height depends on the font and
+// on how long a symbol's display name wraps.
+const PNL_VISIBLE_ROWS = 5;
+
+function syncOverviewCardHeights() {
+  const list = $("pnlBars");
+  if (!list) return;
+  const rows = [...list.querySelectorAll(".pnlrow")];
+  if (rows.length <= PNL_VISIBLE_ROWS) {
+    list.style.maxHeight = "";
+    list.classList.remove("is-scrollable");
+  } else {
+    const first = rows[0].getBoundingClientRect().top;
+    const cut = rows[PNL_VISIBLE_ROWS - 1].getBoundingClientRect().bottom;
+    const styles = getComputedStyle(list);
+    const padding = parseFloat(styles.paddingTop || 0) + parseFloat(styles.paddingBottom || 0);
+    list.style.maxHeight = `${Math.round(cut - first + padding)}px`;
+    list.classList.add("is-scrollable");
+  }
+  // The curve card sits beside the list, so match the plot to whatever height
+  // the list settled on instead of leaving the two cards ragged.
+  const hit = $("equityHit");
+  const legend = document.querySelector(".panel--curve .curve-legend");
+  const head = document.querySelector(".panel--curve .panel__head");
+  if (!hit || !head) return;
+  const target = list.getBoundingClientRect().height + head.getBoundingClientRect().height;
+  const legendHeight = legend ? legend.getBoundingClientRect().height : 0;
+  const plot = Math.max(180, Math.round(target - head.getBoundingClientRect().height - legendHeight));
+  hit.style.height = `${plot}px`;
+  drawEquityChart();
 }
 
 /* ---------------- equity curve ---------------- */
@@ -678,15 +713,57 @@ async function refreshEquity() {
   drawEquityChart();
 }
 
-function drawEquityChart() {
-  const canvas = $("equityChart");
-  if (!canvas || !canvas.clientWidth) return;
+function equityPoints() {
+  let running = 0;
+  return state.equity.map((row, i) => ({
+    i,
+    value: (running += Number(row.pnl || 0)),
+    delta: Number(row.pnl || 0),
+    row,
+  }));
+}
+
+function equityGeometry(points, width, height, pad) {
+  const w = width - pad.l - pad.r;
+  const h = height - pad.t - pad.b;
+  const values = points.map((p) => p.value);
+  const rawMin = Math.min(0, ...values);
+  const rawMax = Math.max(0, ...values);
+  // A flat series would divide by zero; a little headroom also keeps the line
+  // off the frame instead of welding it to the top and bottom edges.
+  const span = (rawMax - rawMin) || 1;
+  const min = rawMin - span * 0.08;
+  const max = rawMax + span * 0.08;
+  const range = max - min;
+  return {
+    w, h, min, max,
+    xAt: (i) => pad.l + (points.length === 1 ? w / 2 : (i / (points.length - 1)) * w),
+    yAt: (v) => pad.t + h - ((v - min) / range) * h,
+  };
+}
+
+function niceTicks(min, max, count) {
+  const raw = (max - min) / Math.max(1, count);
+  const mag = Math.pow(10, Math.floor(Math.log10(Math.abs(raw) || 1)));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw) || mag * 10;
+  const ticks = [];
+  for (let v = Math.ceil(min / step) * step; v <= max; v += step) ticks.push(v);
+  return ticks;
+}
+
+/**
+ * One renderer for both the overview card and the full-screen view.
+ * `detailed` adds axes, gridlines and value labels; the card stays clean
+ * because at 200px tall those would be noise rather than information.
+ */
+function drawEquitySeries(canvas, { detailed = false, hoverIndex = null } = {}) {
+  if (!canvas || !canvas.clientWidth) return null;
   const ctx = canvas.getContext("2d");
   const ratio = window.devicePixelRatio || 1;
   const width = canvas.clientWidth;
-  const height = Math.max(180, canvas.clientHeight || 220);
-  canvas.width = width * ratio;
-  canvas.height = height * ratio;
+  const height = Math.max(160, canvas.clientHeight || 220);
+  canvas.width = Math.round(width * ratio);
+  canvas.height = Math.round(height * ratio);
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
@@ -696,77 +773,244 @@ function drawEquityChart() {
   const cLine = styles.getPropertyValue("--border-subtle").trim() || "#2B2F36";
   const cText = styles.getPropertyValue("--text-secondary").trim() || "#9BA3AF";
 
-  const pad = { l: 8, r: 8, t: 16, b: 16 };
-  const w = width - pad.l - pad.r;
-  const h = height - pad.t - pad.b;
-
-  if (state.equity.length < 1) {
+  const points = equityPoints();
+  if (!points.length) {
     ctx.fillStyle = cText;
     ctx.font = "12px Inter, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText("No settled trades yet", width / 2, height / 2);
-    $("equityDelta").textContent = "--";
-    $("equityMeta").textContent = "no trades";
-    return;
+    return null;
   }
 
-  let running = 0;
-  const points = state.equity.map((row) => (running += row.pnl));
-  const min = Math.min(0, ...points);
-  const max = Math.max(0, ...points);
-  const span = max - min || 1;
-  const xAt = (i) => pad.l + (points.length === 1 ? w / 2 : (i / (points.length - 1)) * w);
-  const yAt = (v) => pad.t + h - ((v - min) / span) * h;
-  const last = points[points.length - 1];
+  const pad = detailed
+    ? { l: 62, r: 20, t: 18, b: 34 }
+    : { l: 8, r: 8, t: 16, b: 16 };
+  const geo = equityGeometry(points, width, height, pad);
+  const last = points[points.length - 1].value;
   const positive = last >= 0;
   const color = positive ? cSecondary : cError;
 
-  // zero baseline
-  if (min < 0 && max > 0) {
+  if (detailed) {
+    // Recessive gridlines: present enough to read a value off, quiet enough
+    // that the series stays the loudest thing on the canvas.
+    ctx.font = "11px 'JetBrains Mono', monospace";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    niceTicks(geo.min, geo.max, 6).forEach((v) => {
+      const y = geo.yAt(v);
+      ctx.strokeStyle = cLine;
+      ctx.globalAlpha = Math.abs(v) < 1e-9 ? 0.85 : 0.32;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(pad.l, y);
+      ctx.lineTo(width - pad.r, y);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = cText;
+      ctx.fillText(fmtSignedMoney(v), pad.l - 10, y);
+    });
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    const stepX = Math.max(1, Math.ceil(points.length / 8));
+    for (let i = 0; i < points.length; i += stepX) {
+      ctx.fillStyle = cText;
+      ctx.fillText(String(i + 1), geo.xAt(i), pad.t + geo.h + 10);
+    }
+    ctx.fillText(`trade # (${points.length} settled)`, width / 2, pad.t + geo.h + 22);
+  } else if (geo.min < 0 && geo.max > 0) {
     ctx.strokeStyle = cLine;
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
-    ctx.moveTo(pad.l, yAt(0));
-    ctx.lineTo(width - pad.r, yAt(0));
+    ctx.moveTo(pad.l, geo.yAt(0));
+    ctx.lineTo(width - pad.r, geo.yAt(0));
     ctx.stroke();
     ctx.setLineDash([]);
   }
 
-  // area fill
-  const gradient = ctx.createLinearGradient(0, pad.t, 0, pad.t + h);
-  gradient.addColorStop(0, `${color}44`);
+  const gradient = ctx.createLinearGradient(0, pad.t, 0, pad.t + geo.h);
+  gradient.addColorStop(0, `${color}3a`);
   gradient.addColorStop(1, `${color}00`);
   ctx.beginPath();
-  ctx.moveTo(xAt(0), yAt(points[0]));
-  points.forEach((v, i) => ctx.lineTo(xAt(i), yAt(v)));
-  ctx.lineTo(xAt(points.length - 1), pad.t + h);
-  ctx.lineTo(xAt(0), pad.t + h);
+  ctx.moveTo(geo.xAt(0), geo.yAt(points[0].value));
+  points.forEach((p) => ctx.lineTo(geo.xAt(p.i), geo.yAt(p.value)));
+  ctx.lineTo(geo.xAt(points.length - 1), pad.t + geo.h);
+  ctx.lineTo(geo.xAt(0), pad.t + geo.h);
   ctx.closePath();
   ctx.fillStyle = gradient;
   ctx.fill();
 
-  // line
   ctx.beginPath();
-  ctx.moveTo(xAt(0), yAt(points[0]));
-  points.forEach((v, i) => ctx.lineTo(xAt(i), yAt(v)));
+  ctx.moveTo(geo.xAt(0), geo.yAt(points[0].value));
+  points.forEach((p) => ctx.lineTo(geo.xAt(p.i), geo.yAt(p.value)));
   ctx.strokeStyle = color;
   ctx.lineWidth = 2;
   ctx.lineJoin = "round";
+  ctx.lineCap = "round";
   ctx.stroke();
 
-  // last marker
-  ctx.beginPath();
-  ctx.arc(xAt(points.length - 1), yAt(last), 3.5, 0, Math.PI * 2);
-  ctx.fillStyle = color;
-  ctx.fill();
+  const marker = (index, radius) => {
+    const p = points[index];
+    ctx.beginPath();
+    ctx.arc(geo.xAt(p.i), geo.yAt(p.value), radius, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+  };
+  marker(points.length - 1, detailed ? 4 : 3.5);
 
+  if (detailed && hoverIndex !== null && points[hoverIndex]) {
+    const p = points[hoverIndex];
+    const x = geo.xAt(p.i);
+    ctx.strokeStyle = cText;
+    ctx.globalAlpha = 0.45;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(x, pad.t);
+    ctx.lineTo(x, pad.t + geo.h);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    // A surface-coloured ring keeps the hovered point legible where the line
+    // doubles back over itself.
+    ctx.beginPath();
+    ctx.arc(x, geo.yAt(p.value), 6, 0, Math.PI * 2);
+    ctx.fillStyle = styles.getPropertyValue("--surface-panel").trim() || "#161A1E";
+    ctx.fill();
+    marker(hoverIndex, 4);
+  }
+
+  return { points, geo, last, positive, pad, width, height };
+}
+
+function drawEquityChart() {
+  const result = drawEquitySeries($("equityChart"));
   const delta = $("equityDelta");
-  delta.textContent = fmtSignedMoney(last);
-  delta.className = `chip mono ${positive ? "chip--good" : "chip--bad"}`;
-  const peak = Math.max(...points);
-  const drawdown = peak > 0 ? peak - last : 0;
-  $("equityMeta").textContent = `${points.length} trades · peak ${fmtSignedMoney(peak)} · dd ${fmtMoney(drawdown)}`;
+  if (!delta) return;
+  if (!result) {
+    delta.textContent = "--";
+    delta.className = "chip chip--muted mono";
+    const meta = $("equityMeta");
+    if (meta) meta.textContent = "no trades";
+    return;
+  }
+  const values = result.points.map((p) => p.value);
+  const peak = Math.max(...values);
+  const drawdown = peak > 0 ? peak - result.last : 0;
+  delta.textContent = fmtSignedMoney(result.last);
+  delta.className = `chip mono ${result.positive ? "chip--good" : "chip--bad"}`;
+  const summary = `${values.length} trades · peak ${fmtSignedMoney(peak)} · dd ${fmtMoney(drawdown)}`;
+  const meta = $("equityMeta");
+  if (meta) meta.textContent = summary;
+  return summary;
+}
+
+/* ---------------- equity full screen ---------------- */
+let equityFsIndex = null;
+
+function drawEquityFullscreen() {
+  const result = drawEquitySeries($("equityChartFs"), { detailed: true, hoverIndex: equityFsIndex });
+  const delta = $("equityFsDelta");
+  const meta = $("equityFsMeta");
+  if (!result) {
+    if (delta) { delta.textContent = "--"; delta.className = "chip chip--muted mono"; }
+    if (meta) meta.textContent = "no settled trades yet";
+    return;
+  }
+  const values = result.points.map((p) => p.value);
+  const peak = Math.max(...values);
+  const trough = Math.min(...values);
+  const wins = result.points.filter((p) => p.delta > 0).length;
+  if (delta) {
+    delta.textContent = fmtSignedMoney(result.last);
+    delta.className = `chip mono ${result.positive ? "chip--good" : "chip--bad"}`;
+  }
+  if (meta) {
+    meta.textContent = `${values.length} settled trades · ${wins} up · peak ${fmtSignedMoney(peak)} · trough ${fmtSignedMoney(trough)} · max drawdown ${fmtMoney(Math.max(0, peak - trough))}`;
+  }
+  return result;
+}
+
+function openEquityFullscreen() {
+  const root = $("equityFullscreen");
+  if (!root) return;
+  root.hidden = false;
+  document.body.classList.add("is-locked");
+  equityFsIndex = null;
+  requestAnimationFrame(drawEquityFullscreen);
+}
+
+function closeEquityFullscreen() {
+  const root = $("equityFullscreen");
+  if (!root || root.hidden) return;
+  root.hidden = true;
+  document.body.classList.remove("is-locked");
+  equityFsIndex = null;
+  const tip = $("equityTip");
+  if (tip) tip.hidden = true;
+}
+
+function equityFullscreenOpen() {
+  const root = $("equityFullscreen");
+  return Boolean(root && !root.hidden);
+}
+
+function bindEquityChart() {
+  const open = () => openEquityFullscreen();
+  $("equityExpand")?.addEventListener("click", open);
+  const hit = $("equityHit");
+  hit?.addEventListener("click", open);
+  hit?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); }
+  });
+  document.querySelectorAll("[data-equity-close]").forEach((el) =>
+    el.addEventListener("click", closeEquityFullscreen));
+
+  const plot = $("equityFsPlot");
+  const tip = $("equityTip");
+  plot?.addEventListener("mousemove", (event) => {
+    const result = drawEquitySeries($("equityChartFs"), { detailed: true });
+    if (!result || !tip) return;
+    const box = plot.getBoundingClientRect();
+    const x = event.clientX - box.left;
+    // Nearest point by x, so the tooltip tracks the series rather than
+    // requiring the pointer to land exactly on a vertex.
+    let nearest = 0;
+    let best = Infinity;
+    result.points.forEach((p) => {
+      const d = Math.abs(result.geo.xAt(p.i) - x);
+      if (d < best) { best = d; nearest = p.i; }
+    });
+    equityFsIndex = nearest;
+    drawEquityFullscreen();
+    const p = result.points[nearest];
+    const px = result.geo.xAt(p.i);
+    const py = result.geo.yAt(p.value);
+    tip.hidden = false;
+    tip.innerHTML = `
+      <div class="charttip__head">Trade ${p.i + 1} of ${result.points.length}</div>
+      <div class="charttip__row"><span>Cumulative</span><strong class="${p.value >= 0 ? "pos" : "neg"}">${fmtSignedMoney(p.value)}</strong></div>
+      <div class="charttip__row"><span>This trade</span><strong class="${p.delta >= 0 ? "pos" : "neg"}">${fmtSignedMoney(p.delta)}</strong></div>
+      ${p.row?.symbol ? `<div class="charttip__row"><span>Symbol</span><strong>${escapeHtml(String(p.row.symbol))}</strong></div>` : ""}
+      ${p.row?.time ? `<div class="charttip__row"><span>When</span><strong>${escapeHtml(fmtEpoch(p.row.time))}</strong></div>` : ""}`;
+    const tipBox = tip.getBoundingClientRect();
+    const flip = px + 18 + tipBox.width > box.width;
+    tip.style.left = `${flip ? px - tipBox.width - 18 : px + 18}px`;
+    tip.style.top = `${Math.min(Math.max(8, py - tipBox.height / 2), box.height - tipBox.height - 8)}px`;
+  });
+  plot?.addEventListener("mouseleave", () => {
+    equityFsIndex = null;
+    if (tip) tip.hidden = true;
+    drawEquityFullscreen();
+  });
+
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && equityFullscreenOpen()) closeEquityFullscreen();
+  });
+  window.addEventListener("resize", () => {
+    syncOverviewCardHeights();
+    if (equityFullscreenOpen()) drawEquityFullscreen();
+  });
 }
 
 /* ---------------- model validation ---------------- */
@@ -3221,6 +3465,7 @@ function init() {
   bindSettings();
   bindPalette();
   bindKeyboard();
+  bindEquityChart();
 
   const initial = location.hash.slice(1) || localStorage.getItem(LS.view) || "overview";
   switchView(initial, { push: false });

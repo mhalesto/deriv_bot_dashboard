@@ -2024,3 +2024,127 @@ body.drawer-overlay .toasts { right: calc(var(--drawer-w-lg) + 24px); }
 @media (max-width: 900px) {
   .ai-readiness__head { flex-direction: column; gap: 2px; }
 }
+
+/* ===================== OVERVIEW: PNL LIST + EQUITY CURVE ===================== */
+/* Five symbols are visible; the rest scroll inside the card so the row of
+   cards keeps a predictable height however many symbols are configured. */
+.panel__body--scroll.is-scrollable {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 14px), transparent 100%);
+          mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 14px), transparent 100%);
+}
+
+.curve-hit {
+  position: relative;
+  display: block;
+  width: 100%;
+  cursor: zoom-in;
+  border-radius: var(--r-lg);
+  transition: background 0.18s ease;
+}
+.curve-hit canvas { display: block; width: 100%; height: 100%; }
+.curve-hit:hover { background: rgba(255, 255, 255, 0.022); }
+.curve-hit:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.btn--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  background: var(--surface-container-low);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.btn--icon:hover { background: var(--surface-container-high); color: var(--text-primary); }
+.btn--icon .ms { font-size: 17px; }
+
+body.is-locked { overflow: hidden; }
+
+.chartfs {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.chartfs[hidden] { display: none; }
+.chartfs__scrim { position: absolute; inset: 0; background: rgba(6, 8, 10, 0.72); backdrop-filter: blur(3px); }
+.chartfs__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(1400px, 100%);
+  height: min(860px, 100%);
+  padding: 18px 20px 20px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-xl, 16px);
+  background: var(--surface-panel);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+}
+.chartfs__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.chartfs__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 17px;
+  font-weight: 600;
+}
+.chartfs__title .ms { color: var(--secondary); font-size: 20px; }
+.chartfs__sub { margin: 5px 0 0; color: var(--text-secondary); font-family: var(--font-mono); font-size: 11px; }
+.chartfs__plot { position: relative; flex: 1; min-height: 0; cursor: crosshair; }
+.chartfs__plot canvas { display: block; width: 100%; height: 100%; }
+
+.charttip {
+  position: absolute;
+  z-index: 2;
+  min-width: 190px;
+  padding: 9px 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  background: var(--surface-container);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+.charttip[hidden] { display: none; }
+.charttip__head {
+  margin-bottom: 6px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.charttip__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 11px;
+  line-height: 19px;
+}
+.charttip__row span { color: var(--text-secondary); }
+.charttip__row strong { font-family: var(--font-mono); color: var(--text-primary); }
+.charttip__row .pos { color: var(--secondary); }
+.charttip__row .neg { color: var(--error); }
+
+@media (max-width: 900px) {
+  .chartfs { padding: 10px; }
+  .chartfs__panel { height: 100%; padding: 14px; }
+}

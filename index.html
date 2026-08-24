@@ -124,7 +124,7 @@
                 <button class="seg is-active" data-range="all" type="button">All</button>
               </div>
             </div>
-            <div class="panel__body" id="pnlBars"></div>
+            <div class="panel__body panel__body--scroll" id="pnlBars"></div>
           </section>
 
           <section class="panel panel--curve">
@@ -132,10 +132,15 @@
               <h2 class="panel__title">
                 <span class="ms panel__icon">show_chart</span>Equity Curve
               </h2>
-              <span class="chip chip--muted mono" id="equityDelta">--</span>
+              <div class="toolbar">
+                <span class="chip chip--muted mono" id="equityDelta">--</span>
+                <button class="btn btn--icon" id="equityExpand" type="button" title="Open full screen" aria-label="Open equity curve full screen"><span class="ms">open_in_full</span></button>
+              </div>
             </div>
             <div class="panel__body panel__body--flush">
-              <canvas id="equityChart" height="220"></canvas>
+              <div class="curve-hit" id="equityHit" role="button" tabindex="0" aria-label="Open equity curve full screen">
+                <canvas id="equityChart" height="220"></canvas>
+              </div>
               <div class="curve-legend">
                 <span><i class="swatch swatch--pos"></i>Cumulative PnL</span>
                 <span class="mono" id="equityMeta">no trades</span>
@@ -802,6 +807,26 @@ order by pnl desc</textarea>
     <div class="scrim" id="scrim" hidden></div>
 
     <!-- ===================== MODAL ===================== -->
+    <div class="chartfs" id="equityFullscreen" hidden>
+      <div class="chartfs__scrim" data-equity-close></div>
+      <section class="chartfs__panel" role="dialog" aria-modal="true" aria-labelledby="equityFsTitle">
+        <header class="chartfs__head">
+          <div>
+            <h2 class="chartfs__title" id="equityFsTitle"><span class="ms">show_chart</span>Equity Curve</h2>
+            <p class="chartfs__sub" id="equityFsMeta">no trades</p>
+          </div>
+          <div class="toolbar">
+            <span class="chip chip--muted mono" id="equityFsDelta">--</span>
+            <button class="btn btn--icon" type="button" data-equity-close aria-label="Close"><span class="ms">close</span></button>
+          </div>
+        </header>
+        <div class="chartfs__plot" id="equityFsPlot">
+          <canvas id="equityChartFs"></canvas>
+          <div class="charttip" id="equityTip" hidden></div>
+        </div>
+      </section>
+    </div>
+
     <div class="modal-root" id="modalRoot" hidden>
       <div class="modal-scrim" data-modal-cancel></div>
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
