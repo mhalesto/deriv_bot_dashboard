@@ -1288,7 +1288,7 @@ function renderTrades() {
         <div class="traderow__stack">
           <span class="traderow__conf">
             <span class="meter"><span class="meter__fill" style="width:${Number.isFinite(conf) ? Math.min(100, conf * 100).toFixed(0) : 0}%"></span></span>
-            <span class="traderow__primary">${Number.isFinite(conf) ? `${(conf * 100).toFixed(0)}%` : "--"}</span>
+            <span class="traderow__primary" title="Empirical policy probability; AI confirmation is reported separately">${Number.isFinite(conf) ? `${(conf * 100).toFixed(0)}% prior` : "--"}</span>
           </span>
           <span class="traderow__secondary mono">Pr ${Number.isFinite(prob) ? `${(prob * 100).toFixed(1)}%` : "--"} · EV ${Number.isFinite(ev) ? ev.toFixed(2) : "--"}</span>
         </div>
@@ -1400,10 +1400,10 @@ async function openTradeDetail(contractId) {
 
     ${Number.isFinite(conf) ? `
     <section>
-      <h3 class="section-title">Confidence vs threshold</h3>
+      <h3 class="section-title">Policy probability vs threshold</h3>
       <div class="confbar">
         <div class="confbar__head">
-          <span class="confbar__label">Confidence at trade</span>
+          <span class="confbar__label">Empirical policy probability</span>
           <div>
             <div class="confbar__value" style="color:var(--${Number.isFinite(threshold) && conf >= threshold ? "secondary" : "status-warning"})">${(conf * 100).toFixed(1)}%</div>
             <div class="confbar__req">Required ${Number.isFinite(threshold) ? `${(threshold * 100).toFixed(1)}%` : "n/a"}</div>
