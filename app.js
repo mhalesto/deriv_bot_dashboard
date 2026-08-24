@@ -1691,9 +1691,33 @@ async function openTradeDetail(contractId) {
 /* =============================================================
    PREDICTIONS
    ============================================================= */
+// The bot's stage vocabulary is: EligibleForQuote, ShadowOnly, Disabled,
+// Recorded, Blocked, BlockedByTrendFilter, BlockedEarly_DynConf,
+// BlockedEarly_EV. This used to match on the substrings "pass"/"trade"/
+// "trigger"/"executed", none of which appear in EligibleForQuote, so every
+// candidate the policy actually cleared was counted and labelled as blocked -
+// a pass rate of 0% on a bot that was quoting and trading normally.
+const ELIGIBLE_STAGES = new Set(["eligibleforquote"]);
+const NEUTRAL_STAGES = new Set(["shadowonly", "disabled", "recorded"]);
+
+function stageOf(row) {
+  return String(row.filter_stage_outcome || "").trim().toLowerCase();
+}
+
 function isTriggered(row) {
-  const outcome = String(row.filter_stage_outcome || "").toLowerCase();
-  return outcome.includes("pass") || outcome.includes("trade") || outcome.includes("trigger") || outcome.includes("executed");
+  const outcome = stageOf(row);
+  if (ELIGIBLE_STAGES.has(outcome)) return true;
+  // Legacy rows written before the stage names were standardised.
+  return outcome.includes("pass") || outcome.includes("trade")
+    || outcome.includes("trigger") || outcome.includes("executed");
+}
+
+// Shadow, disabled and recorded candidates were never offered for execution.
+// Counting them as "blocked" implies a filter rejected them, which is a
+// different and more alarming claim than "this policy is not executing".
+function isBlocked(row) {
+  const outcome = stageOf(row);
+  return !isTriggered(row) && !NEUTRAL_STAGES.has(outcome);
 }
 
 async function loadPredictions({ quiet = false } = {}) {
@@ -1727,15 +1751,21 @@ function visiblePredictions() {
 function renderPredictionMetrics() {
   const rows = state.predictions;
   const triggered = rows.filter(isTriggered).length;
-  const blocked = rows.length - triggered;
+  const blocked = rows.filter(isBlocked).length;
+  const notOffered = rows.length - triggered - blocked;
   const confidences = rows.map((r) => Number(r.model_confidence)).filter(Number.isFinite);
   const avgConf = confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : NaN;
   const passRate = rows.length ? (triggered / rows.length) * 100 : 0;
 
   $("predictionMetrics").innerHTML = [
     kpiTile({ label: "Attempts", value: fmtInt(rows.length), sub: "loaded window" }),
-    kpiTile({ label: "Triggered", value: fmtInt(triggered), kind: "accent", sub: "passed every filter" }),
-    kpiTile({ label: "Blocked", value: fmtInt(blocked), kind: blocked ? "warn" : "", sub: "filtered before order" }),
+    kpiTile({ label: "Eligible", value: fmtInt(triggered), kind: "accent", sub: "cleared the policy gate" }),
+    kpiTile({
+      label: "Blocked",
+      value: fmtInt(blocked),
+      kind: blocked ? "warn" : "",
+      sub: notOffered ? `filtered out · ${fmtInt(notOffered)} shadow/disabled` : "filtered out before an order",
+    }),
     kpiTile({
       label: "Avg Confidence",
       value: Number.isFinite(avgConf) ? fmtPct(avgConf * 100) : "--",
@@ -1852,7 +1882,7 @@ async function loadPredictionRaw(row) {
 }
 
 function renderBlockReasons() {
-  const blocked = state.predictions.filter((r) => !isTriggered(r));
+  const blocked = state.predictions.filter(isBlocked);
   const counts = new Map();
   blocked.forEach((row) => {
     const key = (row.reason_if_blocked_early || row.filter_stage_outcome || "unspecified").trim();
