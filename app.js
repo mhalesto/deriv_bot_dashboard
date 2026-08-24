@@ -897,8 +897,17 @@ function symbolStatus(rt) {
   const aiCollecting = Boolean(
     ai.enabled && ai.collect_all_candidates && state.status?.process?.running
   );
+  const execution = state.status?.evidence?.execution || {};
+  const exactEvaluation = Boolean(
+    rt.execution_enabled && execution.phase === "exact_evaluation" && execution.ready
+  );
   const aiName = [ai.provider, ai.model_id].filter(Boolean).join(" · ") || "AI";
   const aiDetail = `${aiName} shadow active · ${fmtInt(ai.events || 0)} opinions · uncalibrated, no execution vote`;
+  if (exactEvaluation) return {
+    text: aiCollecting ? "Demo evaluation + AI shadow" : "Demo evaluation",
+    kind: "good",
+    detail: `${execution.evaluation_policy_id || "locked policy"} may place fixed-stake demo contracts · ${aiCollecting ? aiDetail : "AI shadow is not collecting"}`,
+  };
   if (rt.model_training) return {
     text: aiCollecting ? "Training + AI shadow" : "Training model",
     kind: "info", detail: aiCollecting ? aiDetail : undefined,
