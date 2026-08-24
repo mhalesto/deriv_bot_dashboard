@@ -35,6 +35,9 @@
         <a class="navlink" data-view="learning" href="#learning">
           <span class="ms">school</span><span class="navlink__text">Learning</span>
         </a>
+        <a class="navlink" data-view="evidence" href="#evidence">
+          <span class="ms">fact_check</span><span class="navlink__text">Evidence &amp; AI</span>
+        </a>
         <a class="navlink" data-view="query" href="#query">
           <span class="ms">terminal</span><span class="navlink__text">Query</span>
         </a>
@@ -380,6 +383,105 @@
             <span class="panel__hint" id="learnBookHint"></span>
           </div>
           <div class="panel__body panel__body--flush" id="learningBook"></div>
+        </section>
+      </section>
+
+      <!-- ===================== EVIDENCE & AI ===================== -->
+      <section class="view" id="view-evidence">
+        <div class="pagehead pagehead--tight">
+          <div>
+            <h1 class="pagehead__title"><span class="ms pagehead__icon">fact_check</span>Evidence &amp; AI</h1>
+            <p class="pagehead__sub">The auditable path from candidate to settlement, policy promotion gates, canary safety, and independent AI confirmation.</p>
+          </div>
+          <div class="pagehead__tools toolbar">
+            <span class="chip chip--muted">Read only</span>
+            <button class="btn btn--surface" id="reloadEvidenceBtn" type="button"><span class="ms">refresh</span>Refresh</button>
+          </div>
+        </div>
+
+        <div class="evidence-gate" id="executionGate"></div>
+        <div class="kpi-grid kpi-grid--5" id="evidenceKpis"></div>
+
+        <div class="evidence-grid">
+          <section class="panel panel--glow">
+            <div class="panel__head">
+              <h2 class="panel__title"><span class="ms panel__icon">route</span>Immutable Lifecycle</h2>
+              <span class="panel__hint">distinct stages; no proposal is counted as a buy</span>
+            </div>
+            <div class="panel__body" id="evidenceLifecycle"></div>
+          </section>
+          <section class="panel">
+            <div class="panel__head">
+              <h2 class="panel__title"><span class="ms panel__icon">verified_user</span>Integrity &amp; Reconciliation</h2>
+              <span class="panel__hint">critical counters must remain zero</span>
+            </div>
+            <div class="panel__body" id="evidenceIntegrity"></div>
+          </section>
+        </div>
+
+        <section class="panel evidence-section">
+          <div class="panel__head">
+            <h2 class="panel__title"><span class="ms panel__icon">strategy</span>Policy Registry &amp; Promotion</h2>
+            <span class="panel__hint" id="policyRegistryHint"></span>
+          </div>
+          <div class="panel__body panel__body--flush" id="policyRegistry"></div>
+        </section>
+
+        <div class="evidence-grid evidence-section">
+          <section class="panel">
+            <div class="panel__head">
+              <h2 class="panel__title"><span class="ms panel__icon">health_and_safety</span>Demo Canary Limits</h2>
+              <span class="panel__hint">fixed exposure; automatic demotion</span>
+            </div>
+            <div class="panel__body" id="canaryLimits"></div>
+          </section>
+          <section class="panel panel--ai">
+            <div class="panel__head">
+              <h2 class="panel__title"><span class="ms panel__icon">neurology</span>AI Confirmation Runtime</h2>
+              <span class="panel__hint">veto only; never sizes or creates a trade</span>
+            </div>
+            <div class="panel__body" id="aiConfirmationStatus"></div>
+          </section>
+        </div>
+
+        <section class="panel evidence-section panel--ai">
+          <div class="panel__head">
+            <h2 class="panel__title"><span class="ms panel__icon">model_training</span>Open-Source Model Shortlist</h2>
+            <span class="panel__hint">research order, not a profitability ranking</span>
+          </div>
+          <div class="panel__body" id="aiModelCatalog"></div>
+        </section>
+
+        <div class="evidence-grid evidence-section">
+          <section class="panel">
+            <div class="panel__head">
+              <h2 class="panel__title"><span class="ms panel__icon">science</span>AI Benchmark Runs</h2>
+              <span class="panel__hint">approximate runs cannot promote a policy</span>
+            </div>
+            <div class="panel__body" id="aiBenchmarkRuns"></div>
+          </section>
+          <section class="panel">
+            <div class="panel__head">
+              <h2 class="panel__title"><span class="ms panel__icon">online_prediction</span>Recent AI Opinions</h2>
+              <span class="panel__hint">calibration and agreement are separate</span>
+            </div>
+            <div class="panel__body" id="aiRecentEvents"></div>
+          </section>
+        </div>
+
+        <section class="panel evidence-section">
+          <div class="panel__head">
+            <h2 class="panel__title"><span class="ms panel__icon">construction</span>Research &amp; Safety Tools</h2>
+            <span class="panel__hint">copy a command to run it from the project root</span>
+          </div>
+          <div class="panel__body" id="evidenceTools"></div>
+        </section>
+
+        <section class="panel evidence-section">
+          <div class="panel__head">
+            <h2 class="panel__title"><span class="ms panel__icon">fingerprint</span>Active Version Locks</h2>
+          </div>
+          <div class="panel__body" id="evidenceVersions"></div>
         </section>
       </section>
 

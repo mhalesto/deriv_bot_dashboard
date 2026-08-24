@@ -316,7 +316,7 @@ function readConnectionFrom(source) {
 }
 
 /* ---------------- routing ---------------- */
-const VIEWS = ["overview", "symbols", "trades", "predictions", "learning", "query", "logs", "settings"];
+const VIEWS = ["overview", "symbols", "trades", "predictions", "learning", "evidence", "query", "logs", "settings"];
 
 function switchView(view, { push = true } = {}) {
   if (!VIEWS.includes(view)) view = "overview";
@@ -336,6 +336,7 @@ function switchView(view, { push = true } = {}) {
   if (view === "predictions" && !state.predictions.length && state.connected) loadPredictions();
   if (view === "logs" && !state.logLines.length && state.connected) loadLogs();
   if (view === "learning") renderLearning();
+  if (view === "evidence") renderEvidence();
 }
 
 /* ---------------- status pills ---------------- */
@@ -424,6 +425,7 @@ async function refreshStatus() {
   renderSymbolSelects();
   renderControlsDrawer(runtime, proc);
   renderLearning();
+  renderEvidence();
   setRefreshIndicator();
 
   await refreshPnlRange();
@@ -1842,9 +1844,10 @@ function renderLearningKpis(learning) {
 const FUNNEL_STAGES = [
   { key: "evaluated", label: "Evaluated", icon: "search" },
   { key: "signals", label: "Signals fired", icon: "bolt" },
-  { key: "filter_passed", label: "Passed filter", icon: "filter_alt" },
-  { key: "tradeable", label: "Edge-proven", icon: "verified" },
-  { key: "traded_settled", label: "Traded", icon: "swap_horiz" },
+  { key: "tradeable", label: "Policy eligible", icon: "verified" },
+  { key: "proposal_requested", label: "Quotes requested", icon: "request_quote" },
+  { key: "confirmed_buys", label: "Confirmed buys", icon: "shopping_cart" },
+  { key: "traded_settled", label: "Settlements", icon: "swap_horiz" },
 ];
 
 function renderLearningFunnel(learning) {
@@ -1909,9 +1912,13 @@ function renderLearningBook(learning) {
       <tr>
         <td>${escapeHtml(r.strategy || "?")}</td>
         <td>${escapeHtml(r.symbol || "")}</td>
+        <td>${escapeHtml(r.direction || "")}</td>
+        <td class="num">${r.duration_seconds ? fmtInt(Number(r.duration_seconds) / 60) : "--"}</td>
+        <td>${escapeHtml(r.filter_state || "")}</td>
         <td>${escapeHtml(r.regime || "")}</td>
         <td>${escapeHtml(r.bucket || "")}</td>
-        <td class="num">${fmtInt(r.observations)}</td>
+        <td class="num">${fmtInt(r.raw_observations ?? r.observations)}</td>
+        <td class="num">${fmtInt(r.effective_horizons)}</td>
         <td class="num ${kind}">${Number.isFinite(wr) ? fmtPct(wr, 1) : "--"}</td>
         <td class="num">${fmtNum(r.avg_filter_score, 2)}</td>
         <td class="num">${fmtInt(r.traded || 0)}</td>
@@ -1921,8 +1928,8 @@ function renderLearningBook(learning) {
     <div class="learn-tablewrap">
       <table>
         <thead><tr>
-          <th>Strategy</th><th>Symbol</th><th>Regime</th><th>Strength</th>
-          <th class="num">Obs</th><th class="num">Win rate</th><th class="num">Filter</th><th class="num">Traded</th>
+          <th>Strategy</th><th>Symbol</th><th>Dir</th><th class="num">Min</th><th>Filter state</th><th>Regime</th><th>Strength</th>
+          <th class="num">Raw</th><th class="num">Effective</th><th class="num">Win rate</th><th class="num">Filter score</th><th class="num">Traded</th>
         </tr></thead>
         <tbody>${body}</tbody>
       </table>
@@ -1948,6 +1955,322 @@ function renderLearning() {
   $("learningWorst").innerHTML = cellRowsHtml(learning.worst_cells, {
     emptyMsg: "Nothing flagged as weak yet." });
   renderLearningBook(learning);
+}
+
+/* =============================================================
+   EVIDENCE + AI
+   ============================================================= */
+function evidenceData() {
+  return (state.status && state.status.evidence) || {};
+}
+
+function fmtEpoch(epoch) {
+  const value = Number(epoch);
+  if (!Number.isFinite(value) || value <= 0) return "--";
+  return new Date(value * 1000).toLocaleString();
+}
+
+function evidenceHealthLine(label, value, ok, detail = "") {
+  const kind = ok ? "good" : "bad";
+  return `
+    <div class="evidence-health__row">
+      <span class="evidence-health__icon evidence-health__icon--${kind}"><span class="ms">${ok ? "check_circle" : "error"}</span></span>
+      <span class="evidence-health__label">${escapeHtml(label)}${detail ? `<small>${escapeHtml(detail)}</small>` : ""}</span>
+      <strong class="mono ${ok ? "pos" : "neg"}">${escapeHtml(value)}</strong>
+    </div>`;
+}
+
+function renderEvidenceGate(evidence) {
+  const el = $("executionGate");
+  if (!el) return;
+  const execution = evidence.execution || {};
+  const ready = Boolean(execution.ready);
+  const evaluationActive = ready && execution.phase === "exact_evaluation";
+  const mode = String(execution.mode || "shadow_only").replaceAll("_", " ");
+  el.className = `evidence-gate evidence-gate--${ready ? "good" : "warn"}`;
+  el.innerHTML = `
+    <span class="ms evidence-gate__icon">${ready ? "verified" : "shield_lock"}</span>
+    <div>
+      <strong>${evaluationActive ? "Pre-registered exact demo evaluation is active" : ready ? "Demo canary gates passed" : "Shadow-only safety lock is active"}</strong>
+      <p>${escapeHtml(execution.reason || "No policy has earned execution status.")}</p>
+    </div>
+    <span class="chip chip--${ready ? "good" : "warn"}">${escapeHtml(mode)}</span>`;
+}
+
+function renderEvidenceKpis(evidence) {
+  const el = $("evidenceKpis");
+  if (!el) return;
+  const funnel = evidence.funnel || {};
+  const candidates = funnel.candidates || {};
+  const orders = funnel.orders || {};
+  const settlements = funnel.settlements || {};
+  const reconciliationOk = Boolean(evidence.reconciliation_complete);
+  const exact = Number(settlements.exact_settlements || 0);
+  const settled = Number(settlements.settlements || 0);
+  el.innerHTML = [
+    kpiTile({
+      label: "Execution policy",
+      value: evidence.execution?.ready
+        ? (evidence.execution?.phase === "exact_evaluation" ? "Exact evaluation" : "Canary ready")
+        : "Shadow only",
+      sub: evidence.execution?.champion_policy_id || evidence.execution?.evaluation_policy_id || "no active policy",
+      kind: evidence.execution?.ready ? "good" : "warn",
+    }),
+    kpiTile({
+      label: "Ledger reconciliation",
+      value: reconciliationOk ? "Complete" : "Pending",
+      sub: `${fmtInt(evidence.reconciliation?.settled_contracts || 0)} account contracts checked`,
+      kind: reconciliationOk ? "good" : "warn",
+    }),
+    kpiTile({
+      label: "Candidate evidence",
+      value: `${fmtInt(candidates.candidates || 0)} / ${fmtInt(candidates.effective_horizons || 0)}`,
+      sub: "raw candidates / effective horizons",
+    }),
+    kpiTile({
+      label: "Confirmed buys",
+      value: fmtInt(orders.confirmed_buys || 0),
+      sub: `${fmtInt(orders.buy_requests || 0)} buy requests; ${fmtInt(funnel.open_contracts || 0)} open`,
+    }),
+    kpiTile({
+      label: "Exact settlements",
+      value: `${fmtInt(exact)} / ${fmtInt(settled)}`,
+      sub: `${fmtSignedMoney(settlements.pnl || 0)} PnL · ${evidence.funnel_roi_pct == null ? "ROI n/a" : fmtPct(evidence.funnel_roi_pct, 2) + " ROI"}`,
+      kind: exact === settled && settled > 0 ? "good" : (settled > exact ? "warn" : ""),
+    }),
+  ].join("");
+}
+
+function renderEvidenceLifecycle(evidence) {
+  const el = $("evidenceLifecycle");
+  if (!el) return;
+  const funnel = evidence.funnel || {};
+  const candidates = funnel.candidates || {};
+  const proposals = funnel.proposals || {};
+  const orders = funnel.orders || {};
+  const settlements = funnel.settlements || {};
+  const stages = [
+    ["Candidate signals", candidates.candidates, "radar"],
+    ["Policy eligible", candidates.policy_eligible, "verified"],
+    ["Quotes requested", proposals.requested, "request_quote"],
+    ["Quotes accepted", proposals.accepted, "price_check"],
+    ["Buy requests", orders.buy_requests, "shopping_cart_checkout"],
+    ["Confirmed buys", orders.confirmed_buys, "shopping_cart"],
+    ["Settlements", settlements.settlements, "task_alt"],
+  ];
+  const base = Math.max(1, Number(stages[0][1] || 0));
+  if (!stages.some((stage) => Number(stage[1] || 0) > 0)) {
+    el.innerHTML = `<p class="empty">The new versioned evidence epoch has not recorded a candidate yet.</p>`;
+    return;
+  }
+  el.innerHTML = `<div class="funnel">${stages.map(([label, raw, icon]) => {
+    const count = Number(raw || 0);
+    const pct = Math.min(100, (count / base) * 100);
+    return `
+      <div class="funnel__row">
+        <div class="funnel__label"><span class="ms">${icon}</span>${escapeHtml(label)}</div>
+        <div class="funnel__bar"><div class="funnel__fill" style="width:${pct}%"></div></div>
+        <div class="funnel__count">${fmtInt(count)}<span class="funnel__pct">${fmtPct(pct, 0)}</span></div>
+      </div>`;
+  }).join("")}</div>
+  <div class="evidence-footnote">Rejected quotes: ${fmtInt(proposals.rejected || 0)} · Missing-context buys: ${fmtInt(orders.missing_context_buys || 0)} · Open contracts: ${fmtInt(funnel.open_contracts || 0)}</div>`;
+}
+
+function renderEvidenceIntegrity(evidence) {
+  const el = $("evidenceIntegrity");
+  if (!el) return;
+  const inv = evidence.invariants || {};
+  const recon = evidence.reconciliation || {};
+  const missing = Number(recon.missing_context || 0);
+  const context = Number(inv.bought_without_context || 0);
+  const falseLabels = Number(inv.proposal_only_marked_traded || 0);
+  const unsettled = Number(inv.unsettled_confirmed_orders || 0);
+  const rotationOk = Boolean(evidence.security?.credential_rotation_acknowledged);
+  const demoLocked = evidence.execution?.account_type === "demo" && Boolean(evidence.execution?.demo_only_lock);
+  el.innerHTML = `
+    <div class="evidence-health">
+      ${evidenceHealthLine("Account reconciliation", evidence.reconciliation_complete ? "complete" : "pending", Boolean(evidence.reconciliation_complete), `latest run: ${recon.status || "none"}`)}
+      ${evidenceHealthLine("Confirmed buys without context", fmtInt(context), context === 0)}
+      ${evidenceHealthLine("Proposal-only false trade labels", fmtInt(falseLabels), falseLabels === 0)}
+      ${evidenceHealthLine("Missing recovered context", fmtInt(missing), missing === 0)}
+      ${evidenceHealthLine("Account exposure", demoLocked ? "demo locked" : "unsafe", demoLocked, `account: ${evidence.execution?.account_type || "unknown"}`)}
+      ${evidenceHealthLine("Credential rotation acknowledged", rotationOk ? "yes" : "required", rotationOk, "rotate Deriv and Telegram tokens before restart")}
+      ${evidenceHealthLine("Unsettled confirmed orders", fmtInt(unsettled), unsettled === Number(evidence.funnel?.open_contracts || 0), "must equal known open contracts")}
+    </div>
+    <div class="evidence-footnote">Pages: ${fmtInt(recon.settled_pages || 0)} · Open restored: ${fmtInt(recon.open_contracts || 0)} · Started: ${fmtEpoch(recon.started_at)}</div>`;
+}
+
+function renderPolicyRegistry(evidence) {
+  const el = $("policyRegistry");
+  if (!el) return;
+  const rows = evidence.policies || [];
+  const champion = evidence.execution?.champion_policy_id;
+  $("policyRegistryHint").textContent = `${rows.length} frozen candidates · champion: ${champion || "none"}`;
+  if (!rows.length) {
+    el.innerHTML = `<p class="empty" style="padding:16px">No policy registry was loaded.</p>`;
+    return;
+  }
+  el.innerHTML = `<div class="learn-tablewrap"><table class="evidence-table">
+    <thead><tr><th>Policy</th><th>Strategy</th><th>Scope</th><th>Registry</th><th>Evidence status</th><th>Locked block</th><th>Reason</th></tr></thead>
+    <tbody>${rows.map((row) => {
+      const status = row.runtime_status || {};
+      const mode = status.mode || row.mode || "unknown";
+      const activeTrial = row.active_trial || {};
+      const latestTrial = row.latest_trial || {};
+      const trialSpec = activeTrial.specification || latestTrial.specification || {};
+      const evidenceMode = activeTrial.trial_id ? "evaluation active" : status.mode || latestTrial.status || mode;
+      const modeKind = mode === "champion" ? "good" : mode === "disabled" || mode === "demoted" ? "bad" : "warn";
+      const scope = [
+        (row.symbols || []).join(", ") || "all symbols",
+        (row.durations_minutes || []).length ? `${row.durations_minutes.join(",")}m` : "all durations",
+        row.market_family || "all markets",
+      ].join(" · ");
+      return `<tr>
+        <td class="mono">${escapeHtml(row.policy_id || "")}${row.confirmation_required ? '<span class="ai-badge" title="AI confirmation required">AI</span>' : ""}</td>
+        <td>${escapeHtml(row.strategy || "")}</td>
+        <td>${escapeHtml(scope)}</td>
+        <td><span class="chip chip--${row.mode === "disabled" ? "bad" : "muted"}">${escapeHtml(row.mode || "")}</span></td>
+        <td><span class="chip chip--${modeKind}">${escapeHtml(evidenceMode)}</span></td>
+        <td class="mono">${escapeHtml(status.locked_block_id || trialSpec.locked_block_id || "--")}</td>
+        <td class="evidence-reason">${escapeHtml(activeTrial.trial_id ? `${activeTrial.hypothesis} · ends ${fmtEpoch(activeTrial.evaluation_end)}` : status.reason || row.rationale || "")}</td>
+      </tr>`;
+    }).join("")}</tbody></table></div>`;
+}
+
+function renderCanaryLimits(evidence) {
+  const el = $("canaryLimits");
+  if (!el) return;
+  const limits = evidence.canary_limits || {};
+  el.innerHTML = `<div class="limit-grid">
+    <div><span>Fixed stake</span><strong>${fmtMoney(limits.fixed_stake || 0)}</strong></div>
+    <div><span>Open contracts</span><strong>${fmtInt(limits.max_open_contracts || 0)}</strong></div>
+    <div><span>Daily trades</span><strong>${fmtInt(limits.max_daily_trades || 0)}</strong></div>
+    <div><span>Daily drawdown</span><strong>${fmtMoney(limits.max_daily_drawdown || 0)}</strong></div>
+    <div><span>Quote latency p95</span><strong>${fmtNum(limits.max_quote_latency_seconds || 0, 1)}s</strong></div>
+    <div><span>Max quote rejection</span><strong>${fmtPct(Number(limits.max_rejection_rate || 0) * 100, 0)}</strong></div>
+  </div>
+  <p class="evidence-footnote">Confidence sizing and funded Thompson exploration are disabled. A gate, version, calibration, return-bound, drawdown, latency, or rejection failure automatically demotes the champion.</p>`;
+}
+
+function renderAiStatus(evidence) {
+  const el = $("aiConfirmationStatus");
+  if (!el) return;
+  const ai = evidence.confirmation || {};
+  const adapters = ai.installed_adapters || {};
+  el.innerHTML = `
+    <div class="ai-runtime">
+      <div class="ai-runtime__hero">
+        <span class="ms">${ai.enabled ? "online_prediction" : "cloud_off"}</span>
+        <div><strong>${ai.enabled ? "Shadow sidecar enabled" : "Sidecar not enabled"}</strong><small>${escapeHtml(ai.endpoint || "disabled")}</small></div>
+        <span class="chip chip--${ai.enabled ? "good" : "muted"}">${ai.enabled ? "collecting" : "safe off"}</span>
+      </div>
+      <dl class="evidence-dl">
+        <div><dt>Provider</dt><dd>${escapeHtml(ai.provider || "--")}</dd></div>
+        <div><dt>Model</dt><dd class="mono">${escapeHtml(ai.model_id || "--")}</dd></div>
+        <div><dt>Opinions</dt><dd>${fmtInt(ai.events || 0)}</dd></div>
+        <div><dt>Calibrated</dt><dd>${fmtInt(ai.calibrated_events || 0)}</dd></div>
+        <div><dt>Agreements</dt><dd>${fmtInt(ai.agreements || 0)}</dd></div>
+        <div><dt>Latency p95</dt><dd>${ai.latency_p95_ms == null ? "--" : `${fmtNum(ai.latency_p95_ms, 0)} ms`}</dd></div>
+        <div><dt>Calibration evidence</dt><dd class="mono">${escapeHtml(ai.pinned_calibration_evidence_id || "not pinned")}</dd></div>
+      </dl>
+      <div class="adapter-row"><span class="chip chip--${adapters.chronos ? "good" : "muted"}">Chronos ${adapters.chronos ? "installed" : "optional"}</span><span class="chip chip--${adapters.timesfm ? "good" : "muted"}">TimesFM ${adapters.timesfm ? "installed" : "optional"}</span></div>
+      <p class="evidence-footnote">${escapeHtml(ai.safety_rule || "AI may veto only.")}</p>
+    </div>`;
+}
+
+function renderAiCatalog(evidence) {
+  const el = $("aiModelCatalog");
+  if (!el) return;
+  const rows = evidence.confirmation_models || [];
+  if (!rows.length) {
+    el.innerHTML = `<p class="empty">No AI research registry loaded.</p>`;
+    return;
+  }
+  el.innerHTML = `<div class="ai-catalog">${rows.map((row) => {
+    const kind = row.status === "recommended" ? "good" : row.status === "research" ? "warn" : "muted";
+    return `<article class="ai-card">
+      <div class="ai-card__head"><span class="chip chip--${kind}">${escapeHtml(row.status || "")}</span><span>${escapeHtml(row.size || "")}</span></div>
+      <strong>${escapeHtml(row.model_id || "")}</strong>
+      <small>${escapeHtml(row.decision || "")}</small>
+      <p>${escapeHtml(row.reason || "")}</p>
+      ${row.source ? `<a href="${escapeHtml(row.source)}" target="_blank" rel="noreferrer">Primary source <span class="ms">open_in_new</span></a>` : ""}
+    </article>`;
+  }).join("")}</div>`;
+}
+
+function renderAiBenchmarks(evidence) {
+  const el = $("aiBenchmarkRuns");
+  if (!el) return;
+  const rows = evidence.benchmark_runs || [];
+  if (!rows.length) {
+    el.innerHTML = `<p class="empty">No local benchmark artifact yet. Use the AI shadow benchmark tool below; results will appear here automatically.</p>`;
+    return;
+  }
+  el.innerHTML = `<div class="compact-list">${rows.map((row) => `
+    <div class="compact-list__row">
+      <div><strong>${escapeHtml(row.provider || "?")} · ${escapeHtml(row.model_id || "?")}</strong><small>${escapeHtml(row.artifact || "")} · ${fmtInt(row.non_overlapping_origins || 0)} origins</small></div>
+      <div class="compact-list__metrics"><span>Return ${row.mean_return == null ? "--" : fmtPct(Number(row.mean_return) * 100, 2)}</span><span>LCB ${row.return_lower == null ? "--" : fmtPct(Number(row.return_lower) * 100, 2)}</span><span>Brier ${row.brier == null ? "--" : fmtNum(row.brier, 3)}</span><span>${row.latency_p95_ms == null ? "--" : `${fmtNum(row.latency_p95_ms, 0)} ms`}</span></div>
+      <span class="chip chip--warn">not promotable</span>
+    </div>`).join("")}</div>`;
+}
+
+function renderAiEvents(evidence) {
+  const el = $("aiRecentEvents");
+  if (!el) return;
+  const rows = evidence.confirmation?.recent || [];
+  if (!rows.length) {
+    el.innerHTML = `<p class="empty">No AI opinions have been recorded in this evidence epoch.</p>`;
+    return;
+  }
+  el.innerHTML = `<div class="compact-list">${rows.slice(0, 12).map((row) => `
+    <div class="compact-list__row compact-list__row--event">
+      <div><strong>${escapeHtml(row.direction || "indeterminate")} · ${escapeHtml(row.status || "")}</strong><small>${escapeHtml(row.provider || "")} · ${fmtEpoch(row.event_time)}</small></div>
+      <div class="compact-list__metrics"><span>raw ${row.raw_probability == null ? "--" : fmtPct(Number(row.raw_probability) * 100, 1)}</span><span>cal ${row.calibrated_probability == null ? "--" : fmtPct(Number(row.calibrated_probability) * 100, 1)}</span><span>${row.latency_ms == null ? "--" : `${fmtNum(row.latency_ms, 0)} ms`}</span></div>
+      <span class="chip chip--${row.agrees ? "good" : row.is_calibrated ? "warn" : "muted"}">${row.agrees ? "agrees" : row.is_calibrated ? "calibrated veto" : "no vote"}</span>
+    </div>`).join("")}</div>`;
+}
+
+function renderEvidenceTools(evidence) {
+  const el = $("evidenceTools");
+  if (!el) return;
+  const rows = evidence.tools || [];
+  el.innerHTML = rows.length ? `<div class="tool-grid">${rows.map((row) => `
+    <article class="tool-card">
+      <div><strong>${escapeHtml(row.name || "")}</strong><p>${escapeHtml(row.purpose || "")}</p></div>
+      <code>${escapeHtml(row.command || "")}</code>
+      <button class="btn btn--surface" type="button" data-copy-tool="${encodeURIComponent(row.command || "")}"><span class="ms">content_copy</span>Copy</button>
+    </article>`).join("")}</div>` : `<p class="empty">No tools registered.</p>`;
+}
+
+function renderEvidenceVersions(evidence) {
+  const el = $("evidenceVersions");
+  if (!el) return;
+  const versions = evidence.versions || {};
+  el.innerHTML = `<dl class="version-locks">
+    <div><dt>Code version</dt><dd class="mono">${escapeHtml(versions.code_version || "not reported")}</dd></div>
+    <div><dt>Config hash</dt><dd class="mono">${escapeHtml(versions.config_hash || "not reported")}</dd></div>
+    <div><dt>Registry hash</dt><dd class="mono">${escapeHtml(versions.registry_hash || "not reported")}</dd></div>
+    <div><dt>Registry file hash</dt><dd class="mono">${escapeHtml(versions.registry_file_hash || "not reported")}</dd></div>
+    <div><dt>Registry format</dt><dd class="mono">v${escapeHtml(versions.registry_version ?? "?")}</dd></div>
+    <div><dt>Deriv schema audit</dt><dd class="mono">${escapeHtml(versions.deriv_schema_audit || "not reported")}</dd></div>
+    <div><dt>Evidence cutover</dt><dd>${fmtEpoch(evidence.evidence_cutover_epoch)}</dd></div>
+  </dl>`;
+}
+
+function renderEvidence() {
+  const evidence = evidenceData();
+  renderEvidenceGate(evidence);
+  renderEvidenceKpis(evidence);
+  renderEvidenceLifecycle(evidence);
+  renderEvidenceIntegrity(evidence);
+  renderPolicyRegistry(evidence);
+  renderCanaryLimits(evidence);
+  renderAiStatus(evidence);
+  renderAiCatalog(evidence);
+  renderAiBenchmarks(evidence);
+  renderAiEvents(evidence);
+  renderEvidenceTools(evidence);
+  renderEvidenceVersions(evidence);
 }
 
 function renderControlsDrawer(runtime, proc) {
@@ -2043,7 +2366,8 @@ async function stopBot({ force = false } = {}) {
 const SHORTCUTS = [
   ["Command palette", "⌘K / Ctrl K"],
   ["Overview / Symbols / Trades", "G then 1 / 2 / 3"],
-  ["Predictions / Query / Logs", "G then 4 / 5 / 6"],
+  ["Predictions / Learning / Evidence", "G then 4 / 5 / 6"],
+  ["Query / Logs / Settings", "G then 7 / 8 / 9"],
   ["Refresh status now", "R"],
   ["Run SQL query", "⌘⏎ / Ctrl ⏎"],
   ["Toggle bot controls", "B"],
@@ -2092,6 +2416,7 @@ const COMMANDS = [
   { id: "trades", label: "Go to Trades", icon: "swap_horiz", hint: "view", run: () => switchView("trades") },
   { id: "predictions", label: "Go to Predictions", icon: "psychology", hint: "view", run: () => switchView("predictions") },
   { id: "learning", label: "Go to Learning", icon: "school", hint: "view", run: () => switchView("learning") },
+  { id: "evidence", label: "Go to Evidence & AI", icon: "fact_check", hint: "view", run: () => switchView("evidence") },
   { id: "query", label: "Go to Query", icon: "terminal", hint: "view", run: () => switchView("query") },
   { id: "logs", label: "Go to Logs", icon: "list_alt", hint: "view", run: () => switchView("logs") },
   { id: "settings", label: "Go to Settings", icon: "settings", hint: "view", run: () => switchView("settings") },
@@ -2259,6 +2584,17 @@ function bindOverview() {
       drawEquityChart();
       drawModelQualityChart(modelGateLimits(state.status?.runtime || {}));
     }, 150);
+  });
+}
+
+function bindEvidence() {
+  const reload = $("reloadEvidenceBtn");
+  if (reload) reload.addEventListener("click", () => tick());
+  const tools = $("evidenceTools");
+  if (tools) tools.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-copy-tool]");
+    if (!button) return;
+    copyText(decodeURIComponent(button.dataset.copyTool || ""), "Tool command copied");
   });
 }
 
@@ -2540,7 +2876,7 @@ function bindKeyboard() {
 
     if (chord) {
       chord = false;
-      const map = { 1: "overview", 2: "symbols", 3: "trades", 4: "predictions", 5: "query", 6: "logs", 7: "settings" };
+      const map = { 1: "overview", 2: "symbols", 3: "trades", 4: "predictions", 5: "learning", 6: "evidence", 7: "query", 8: "logs", 9: "settings" };
       if (map[e.key]) {
         e.preventDefault();
         switchView(map[e.key]);
@@ -2581,11 +2917,13 @@ function init() {
   renderPredictionDetail();
   renderBlockReasons();
   renderPnlBars();
+  renderEvidence();
   setRefreshIndicator();
 
   bindNavigation();
   bindConnection();
   bindOverview();
+  bindEvidence();
   bindSymbols();
   bindTrades();
   bindPredictions();
