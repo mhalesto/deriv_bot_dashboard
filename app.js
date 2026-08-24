@@ -2086,7 +2086,15 @@ function renderEvidenceIntegrity(evidence) {
   const falseLabels = Number(inv.proposal_only_marked_traded || 0);
   const unsettled = Number(inv.unsettled_confirmed_orders || 0);
   const rotationOk = Boolean(evidence.security?.credential_rotation_acknowledged);
+  const demoCredentialRiskAccepted = Boolean(evidence.security?.existing_demo_credentials_accepted);
+  const credentialGateOk = Boolean(evidence.security?.credential_gate_satisfied);
   const demoLocked = evidence.execution?.account_type === "demo" && Boolean(evidence.execution?.demo_only_lock);
+  const credentialState = rotationOk ? "rotated" : demoCredentialRiskAccepted ? "test risk accepted" : "required";
+  const credentialDetail = rotationOk
+    ? "audited credentials were externally rotated"
+    : demoCredentialRiskAccepted
+      ? "old credentials explicitly retained for this demo-locked account"
+      : "rotate credentials or explicitly accept them only for a demo-locked account";
   el.innerHTML = `
     <div class="evidence-health">
       ${evidenceHealthLine("Account reconciliation", evidence.reconciliation_complete ? "complete" : "pending", Boolean(evidence.reconciliation_complete), `latest run: ${recon.status || "none"}`)}
@@ -2094,7 +2102,7 @@ function renderEvidenceIntegrity(evidence) {
       ${evidenceHealthLine("Proposal-only false trade labels", fmtInt(falseLabels), falseLabels === 0)}
       ${evidenceHealthLine("Missing recovered context", fmtInt(missing), missing === 0)}
       ${evidenceHealthLine("Account exposure", demoLocked ? "demo locked" : "unsafe", demoLocked, `account: ${evidence.execution?.account_type || "unknown"}`)}
-      ${evidenceHealthLine("Credential rotation acknowledged", rotationOk ? "yes" : "required", rotationOk, "rotate Deriv and Telegram tokens before restart")}
+      ${evidenceHealthLine("Credential audit gate", credentialState, credentialGateOk, credentialDetail)}
       ${evidenceHealthLine("Unsettled confirmed orders", fmtInt(unsettled), unsettled === Number(evidence.funnel?.open_contracts || 0), "must equal known open contracts")}
     </div>
     <div class="evidence-footnote">Pages: ${fmtInt(recon.settled_pages || 0)} · Open restored: ${fmtInt(recon.open_contracts || 0)} · Started: ${fmtEpoch(recon.started_at)}</div>`;
