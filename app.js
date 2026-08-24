@@ -2201,6 +2201,21 @@ function renderSamplingSummary(evidence) {
       : "stratified sampling is disabled; every eligible candidate is traded";
   }
 
+  // Three different states look alike if you only check `enabled`, and the bot
+  // reporting nothing is not the same as the operator turning sampling off.
+  if (!("evidence_sampling" in (evidence || {}))) {
+    if (hint) hint.textContent = "controller did not report coverage";
+    el.innerHTML = `
+      <div class="evidence-gate evidence-gate--warn" style="margin:0">
+        <span class="ms evidence-gate__icon">sync_problem</span>
+        <div>
+          <strong>This controller does not report evidence coverage</strong>
+          <p>The API response carries no <code>evidence_sampling</code> field, which means the running controller predates it. The bot may well be sampling correctly — restart the controller on the current build to see it here.</p>
+        </div>
+        <span class="chip chip--warn">controller out of date</span>
+      </div>`;
+    return;
+  }
   if (!sampling.enabled) {
     el.innerHTML = `
       <div class="evidence-gate evidence-gate--warn" style="margin:0">

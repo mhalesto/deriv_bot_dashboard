@@ -1832,7 +1832,11 @@ body.drawer-overlay .toasts { right: calc(var(--drawer-w-lg) + 24px); }
 .evidence-health__label small { display: block; margin-top: 2px; color: var(--text-secondary); font-size: 9px; }
 .evidence-table { min-width: 1120px; }
 .evidence-table td { vertical-align: top; }
-.evidence-reason { max-width: 360px; color: var(--text-secondary); white-space: normal; line-height: 1.45; }
+/* Without a floor this column collapses to a ~120px ribbon when the other
+   columns take their natural width, wrapping a long trial hypothesis into a
+   400px-tall row. The wrapper already scrolls horizontally, so giving it room
+   is free. */
+.evidence-reason { min-width: 260px; max-width: 360px; color: var(--text-secondary); white-space: normal; line-height: 1.45; }
 .ai-badge {
   display: inline-flex;
   margin-left: 7px;
