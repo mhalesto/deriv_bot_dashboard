@@ -1493,6 +1493,15 @@ function renderTradeMetrics() {
   ].join("");
 }
 
+function tradeTimeText(trade) {
+  // The API still sends `time` as a UTC-derived string for older dashboard
+  // copies. Prefer the raw epoch so a contract opened seconds ago does not read
+  // as hours old next to the local-time log tail.
+  const candidates = [trade.time_epoch, trade.opened_at, typeof trade.time === "number" ? trade.time : null];
+  const epoch = candidates.map(Number).find((v) => Number.isFinite(v) && v > 0);
+  return epoch ? fmtEpoch(epoch) : String(trade.time || "");
+}
+
 function renderTrades() {
   const rows = filteredTrades();
   const size = state.pageSize;
@@ -1513,7 +1522,7 @@ function renderTrades() {
     return `
       <div class="rowgrid traderow" data-trade-id="${id}">
         <div class="traderow__stack">
-          <span class="traderow__primary">${escapeHtml(t.time || "")}</span>
+          <span class="traderow__primary">${escapeHtml(tradeTimeText(t))}</span>
           <span class="traderow__secondary"><i class="dot ${settled ? (won ? "dot--good" : "dot--bad") : "dot--warn"}"></i>${settled ? "Settled" : "Open"}</span>
         </div>
         <div class="traderow__stack">
@@ -1607,10 +1616,8 @@ async function openTradeDetail(contractId) {
   const dir = String(full.contract_type || "").toUpperCase().includes("PUT") ? "put" : "call";
   const conf = Number(full.confidence_at_trade);
   const threshold = Number(full.conf_threshold_used);
-  const epochToText = (v) => new Date(Number(v) * 1000).toISOString().slice(0, 19).replace("T", " ");
-  const time = typeof full.time === "number"
-    ? epochToText(full.time)
-    : (full.time || (full.date_start ? epochToText(full.date_start) : ""));
+  const epochToText = (v) => fmtEpoch(v);
+  const time = tradeTimeText(full) || (full.date_start ? epochToText(full.date_start) : "");
 
   $("tradeDrawerBody").innerHTML = `
     <div class="detail-hero">
