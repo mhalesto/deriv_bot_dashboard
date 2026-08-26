@@ -2497,6 +2497,24 @@ function renderSamplingSummary(evidence) {
       </div>`;
     return;
   }
+  // A halt is the one state an operator must not mistake for a stall. A bot
+  // that has stopped buying because the answer is in looks exactly like a bot
+  // that has hung, and the instinctive response to a hang is a restart - which
+  // here would resume paying for an answer already bought.
+  if (sampling.halted) {
+    if (hint) hint.textContent = "evaluation halted — the block has answered its question";
+    el.innerHTML = `
+      <div class="evidence-gate evidence-gate--good" style="margin:0">
+        <span class="ms evidence-gate__icon">do_not_disturb_on</span>
+        <div>
+          <strong>Evaluation halted — this is deliberate, not a stall</strong>
+          <p>${escapeHtml(sampling.halt_reason || "pooled outcomes have excluded an edge that clears the payout")}</p>
+          <p>Every further contract would buy a more precise version of a "no" that is already settled, at a losing expectation each. Shadow settlement keeps running at no cost, so learning continues — only spending has stopped. Set <code>ENABLE_BLOCK_FUTILITY_STOP=false</code> to override.</p>
+        </div>
+        <span class="chip chip--good">spending stopped</span>
+      </div>`;
+    return;
+  }
   if (!sampling.enabled) {
     el.innerHTML = `
       <div class="evidence-gate evidence-gate--warn" style="margin:0">
@@ -2575,6 +2593,7 @@ function renderSamplingCells(evidence) {
   const sampling = evidence.evidence_sampling || {};
   const rows = sampling.cells || [];
   const stalled = Number((sampling.progress || {}).cells_stalled || 0);
+  const futile = Number((sampling.progress || {}).cells_futile || 0);
   if (!rows.length) {
     el.innerHTML = `<p class="empty" style="padding:16px">No scope has been declared yet. Register an evaluation policy to open one.</p>`;
     return;
@@ -2587,11 +2606,16 @@ function renderSamplingCells(evidence) {
     // accepted model, a rule that never triggers on that market. It is skipped
     // rather than waited on, and named so the cause is obvious.
     stalled: { chip: "warn", icon: "signal_disconnected", label: "no signal" },
+    // Retired early: the optimistic end of this scope's win-rate interval fell
+    // below the break-even its own payout implies, so the remaining contracts
+    // could only confirm a "no" at a losing expectation. Coloured as a result,
+    // not a fault - an early answer is the sampler working, not failing.
+    futile: { chip: "good", icon: "block", label: "no edge" },
   };
   el.innerHTML = `<div class="learn-tablewrap"><table class="evidence-table">
     <thead><tr>
       <th>Scope</th><th>Horizon</th><th>Strategy</th>
-      <th>Exact outcomes</th><th>Coverage</th><th>Open</th><th>Time to target</th><th>State</th>
+      <th>Exact outcomes</th><th>Coverage</th><th>Win rate</th><th>Needs</th><th>Open</th><th>Time to target</th><th>State</th>
     </tr></thead>
     <tbody>${rows.map((row) => {
       const meta = stateMeta[row.state] || stateMeta.queued;
@@ -2604,13 +2628,17 @@ function renderSamplingCells(evidence) {
         <td>
           <span class="meter meter--wide"><span class="meter__fill meter__fill--${row.state === "complete" ? "good" : "accent"}" style="width:${pct}%"></span></span>
         </td>
+        <td class="mono">${row.win_rate == null ? "--" : fmtPct(Number(row.win_rate) * 100, 1)}</td>
+        <td class="mono" title="Break-even implied by this scope's own quoted payout">${row.break_even == null ? "--" : fmtPct(Number(row.break_even) * 100, 1)}</td>
         <td class="mono">${fmtInt(row.open || 0)}</td>
-        <td class="mono">${row.state === "complete" ? "--" : formatHours(row.hours_to_target)}</td>
+        <td class="mono">${row.state === "complete" || row.state === "futile" ? "--" : formatHours(row.hours_to_target)}</td>
         <td><span class="chip chip--${meta.chip}"><span class="ms" style="font-size:14px">${meta.icon}</span>${meta.label}</span></td>
       </tr>`;
     }).join("")}</tbody></table></div>
-  <div class="evidence-footnote">Scopes are filled a few at a time and shortest-horizon first, because at one open contract per scope the horizon — not the daily trade cap — sets how fast exact outcomes arrive. Skipped candidates are still recorded for shadow settlement, so concentrating execution costs no learning.${
+  <div class="evidence-footnote">Scopes are filled a few at a time, cheapest evidence first: a scope quoted at a 0.93 payout needs 51.8% to pay for itself while one at 0.49 needs 67%, so the cheap answer is bought before the expensive one. Horizon breaks ties, because at one open contract per scope it — not the daily trade cap — sets how fast exact outcomes arrive. Skipped candidates are still recorded for shadow settlement, so concentrating execution costs no learning.${
     stalled ? ` <strong>${fmtInt(stalled)} scope${stalled === 1 ? " has" : "s have"} never produced a candidate</strong> — usually an ML scope with no accepted model, or a rule that never triggers on that market. They are excluded from the stopping rule instead of holding the block open.` : ""
+  }${
+    futile ? ` <strong>${fmtInt(futile)} scope${futile === 1 ? " was" : "s were"} retired early</strong> — the optimistic end of the win-rate interval had already fallen below the break-even that scope's own payout implies, so the remaining contracts could only confirm a "no" while losing money. The budget moved to scopes still in doubt.` : ""
   }</div>`;
 }
 
